@@ -99,10 +99,31 @@ def add_security_headers(response):
 UPLOAD_FOLDER = 'uploads'
 OUTPUT_FOLDER = 'output'
 TRAINING_DATA_FOLDER = 'training_data'
+STATS_FILE = 'stats.json'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 os.makedirs(os.path.join(TRAINING_DATA_FOLDER, 'obb', 'images'), exist_ok=True)
 os.makedirs(os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels'), exist_ok=True)
+
+
+def load_stats():
+    """Load download statistics from file."""
+    if os.path.exists(STATS_FILE):
+        try:
+            with open(STATS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {'total_downloads': 0, 'total_panels': 0}
+
+
+def save_stats(stats):
+    """Save download statistics to file."""
+    try:
+        with open(STATS_FILE, 'w') as f:
+            json.dump(stats, f)
+    except Exception as e:
+        print(f"[Stats] Failed to save stats: {e}")
 
 
 def image_to_base64(image: np.ndarray) -> str:
@@ -572,6 +593,12 @@ def download_panels():
 
         zip_buffer.seek(0)
 
+        # Update download stats
+        stats = load_stats()
+        stats['total_downloads'] = stats.get('total_downloads', 0) + 1
+        stats['total_panels'] = stats.get('total_panels', 0) + len(panels)
+        save_stats(stats)
+
         return send_file(
             zip_buffer,
             mimetype='application/zip',
@@ -658,6 +685,13 @@ def _save_training_data_silent(original_image_base64: str, boxes: list):
 def health_check():
     """Health check endpoint"""
     return jsonify({'status': 'ok', 'message': 'Manga Panel Slicer is running'})
+
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    """Get download statistics"""
+    stats = load_stats()
+    return jsonify(stats)
 
 
 @app.route('/api/download_bulk', methods=['POST'])

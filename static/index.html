@@ -64,6 +64,24 @@
             font-size: 0.85rem;
         }
 
+        .stats-counter {
+            display: flex;
+            gap: 15px;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .stat-value {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
         .new-page-btn {
             padding: 10px 20px;
             font-size: 0.95rem;
@@ -790,6 +808,16 @@
     <!-- Compact Header -->
     <header>
         <div class="logo">Manga Panel Slicer</div>
+        <div class="stats-counter" id="statsCounter">
+            <div class="stat-item">
+                <span>Downloads:</span>
+                <span class="stat-value" id="totalDownloads">-</span>
+            </div>
+            <div class="stat-item">
+                <span>Panels:</span>
+                <span class="stat-value" id="totalPanels">-</span>
+            </div>
+        </div>
         <button class="new-page-btn" id="newPageBtn" style="display: none;">+ New Page</button>
         <div class="header-info" id="headerInfo">Upload an image to start</div>
     </header>
@@ -988,6 +1016,24 @@
 
         // Hide model selector in production (only show locally)
         const isProduction = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
+
+        // Fetch and display download stats
+        async function fetchStats() {
+            try {
+                const response = await fetch('/api/stats');
+                if (response.ok) {
+                    const stats = await response.json();
+                    document.getElementById('totalDownloads').textContent = stats.total_downloads.toLocaleString();
+                    document.getElementById('totalPanels').textContent = stats.total_panels.toLocaleString();
+                }
+            } catch (e) {
+                // Silently fail - stats are not critical
+            }
+        }
+
+        // Fetch stats on page load
+        fetchStats();
+
         if (isProduction && modelSelect) {
             modelSelect.style.display = 'none';
         }
@@ -2731,6 +2777,9 @@
 
                 downloadBtn.textContent = 'Saved!';
                 setTimeout(() => { downloadBtn.textContent = 'Download ZIP'; }, 1500);
+
+                // Refresh stats after download
+                fetchStats();
 
             } catch (error) {
                 alert('Download error: ' + error.message);
