@@ -985,6 +985,13 @@
         const downloadPsdBtn = document.getElementById('downloadPsdBtn');
         const rtlToggle = document.getElementById('rtlToggle');
         const modelSelect = document.getElementById('modelSelect');
+
+        // Hide model selector in production (only show locally)
+        const isProduction = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
+        if (isProduction && modelSelect) {
+            modelSelect.style.display = 'none';
+        }
+
         const selectAllBtn = document.getElementById('selectAllBtn');
         const deselectAllBtn = document.getElementById('deselectAllBtn');
         const newPageBtn = document.getElementById('newPageBtn');
