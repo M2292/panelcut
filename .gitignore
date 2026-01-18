@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp/Upload folders
+uploads/*
+output/*
+temp_edit/*
+!uploads/.gitkeep
+!output/.gitkeep
+
+# Training data (keep structure only)
+training_data/obb/images/*
+training_data/obb/labels/*
+training_data/obb/train/
+training_data/obb/val/
+training_data/obb/runs/
+!training_data/obb/images/.gitkeep
+!training_data/obb/labels/.gitkeep
+
+# Vetting sessions
+vetting_sessions/*
+!vetting_sessions/.gitkeep
+
+# Models (too large for git - download separately or use Git LFS)
+models/*.pt
+models/.cache/
+!models/README.md
+
+# Logs
+*.log
+
+# Local dev
+run.bat
+*.local
+
+# Environment
+.env
+.env.local

@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manga Panel Slicer - Deployment Plan</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #1f2940;
+            --text-primary: #eee;
+            --text-secondary: #aaa;
+            --accent: #e94560;
+            --accent-secondary: #ff6b6b;
+            --border: #2d3748;
+            --code-bg: #0f1219;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: var(--accent);
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 1rem;
+            margin-bottom: 2rem;
+            font-size: 2rem;
+        }
+
+        h2 {
+            color: var(--accent-secondary);
+            margin: 2rem 0 1rem 0;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h3 {
+            color: var(--text-primary);
+            margin: 1.5rem 0 0.75rem 0;
+        }
+
+        p {
+            margin-bottom: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .overview-box {
+            background: var(--bg-card);
+            border-left: 4px solid var(--accent);
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .overview-box ul {
+            margin-left: 1.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .overview-box li {
+            color: var(--text-secondary);
+            margin: 0.3rem 0;
+        }
+
+        .architecture {
+            background: var(--code-bg);
+            padding: 1.5rem;
+            border-radius: 8px;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            white-space: pre;
+            margin: 1rem 0;
+        }
+
+        .phase {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            border: 1px solid var(--border);
+        }
+
+        .phase-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .phase-number {
+            background: var(--accent);
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .phase h3 {
+            margin: 0;
+            color: var(--text-primary);
+        }
+
+        .phase-files {
+            background: var(--code-bg);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--accent-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .phase ol {
+            margin-left: 1.5rem;
+        }
+
+        .phase li {
+            margin: 0.75rem 0;
+            color: var(--text-secondary);
+        }
+
+        .phase li strong {
+            color: var(--text-primary);
+        }
+
+        .phase ul {
+            margin-left: 1.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .phase ul li {
+            margin: 0.3rem 0;
+        }
+
+        code {
+            background: var(--code-bg);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.9rem;
+            color: var(--accent-secondary);
+        }
+
+        pre {
+            background: var(--code-bg);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            background: var(--bg-card);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th {
+            background: var(--bg-secondary);
+            color: var(--accent-secondary);
+            text-align: left;
+            padding: 1rem;
+            border-bottom: 2px solid var(--border);
+        }
+
+        td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        td:first-child {
+            font-family: monospace;
+            color: var(--text-primary);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .verification {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+        }
+
+        .verification h4 {
+            color: var(--accent-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .notes {
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-card));
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .notes h2 {
+            border: none;
+            margin-top: 0;
+            padding: 0;
+        }
+
+        .notes ul {
+            margin-left: 1.5rem;
+        }
+
+        .notes li {
+            color: var(--text-secondary);
+            margin: 0.5rem 0;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        @media print {
+            body {
+                background: white;
+                color: #333;
+                padding: 1rem;
+            }
+
+            .phase, .overview-box, .verification, .notes {
+                background: #f5f5f5;
+                border: 1px solid #ddd;
+            }
+
+            code, pre, .architecture, .phase-files {
+                background: #f0f0f0;
+            }
+
+            h1, h2, .phase-number {
+                color: #e94560;
+            }
+
+            h3, td:first-child {
+                color: #333;
+            }
+
+            p, li, td {
+                color: #555;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Manga Panel Slicer - Public Deployment Plan</h1>
+
+        <div class="overview-box">
+            <strong>Goal:</strong> Convert the local Flask manga panel slicer to a public web service on Render.com
+            <ul>
+                <li>Auto-detection using YOLO (hidden from users)</li>
+                <li>Full editing features (draw/resize/delete panels)</li>
+                <li>Silent OBB training data collection when users download panels</li>
+            </ul>
+        </div>
+
+        <h2>Architecture</h2>
+        <div class="architecture">[User Browser] --> [Render.com]
+                      |
+                      +-- Flask API (app.py)
+                      +-- YOLO Model (manga109_yolo.pt) - hidden
+                      +-- Static Frontend (index.html)
+                      +-- Persistent Disk
+                            +-- training_data/obb/
+                                  +-- images/
+                                  +-- labels/</div>
+
+        <h2>Implementation Phases</h2>
+
+        <div class="phase">
+            <div class="phase-header">
+                <div class="phase-number">1</div>
+                <h3>Security Hardening</h3>
+            </div>
+            <div class="phase-files">Files to modify: app.py</div>
+            <ol>
+                <li><strong>Remove model info from API responses</strong>
+                    <ul>
+                        <li>Remove <code>model_used</code>, <code>yolo_model</code>, <code>model_path</code> from all JSON responses</li>
+                        <li>Change <code>detection_method: "yolo"</code> to <code>detection_method: "ai"</code></li>
+                        <li>Remove <code>debug_info</code> from production responses</li>
+                    </ul>
+                </li>
+                <li><strong>Add rate limiting</strong>
+                    <ul>
+                        <li>Install <code>flask-limiter</code></li>
+                        <li>Limit <code>/api/slice*</code> endpoints to 10 requests/minute</li>
+                        <li>Limit <code>/api/download*</code> to 20 requests/minute</li>
+                    </ul>
+                </li>
+                <li><strong>Add file upload limits</strong>
+                    <ul>
+                        <li>Set <code>MAX_CONTENT_LENGTH = 15MB</code></li>
+                        <li>Validate image MIME types (not just extensions)</li>
+                    </ul>
+                </li>
+                <li><strong>Restrict CORS</strong>
+                    <ul>
+                        <li>Change from <code>CORS(app)</code> to specific allowed origins</li>
+                    </ul>
+                </li>
+                <li><strong>Add security headers</strong>
+                    <ul>
+                        <li>X-Content-Type-Options, X-Frame-Options, X-XSS-Protection</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <div class="phase">
+            <div class="phase-header">
+                <div class="phase-number">2</div>
+                <h3>Configuration for Production</h3>
+            </div>
+            <div class="phase-files">Files to create: config.py | Files to modify: app.py</div>
+            <ol>
+                <li><strong>Create config.py</strong> with environment variable support:
+                    <ul>
+                        <li><code>SECRET_KEY</code></li>
+                        <li><code>YOLO_MODEL_PATH</code></li>
+                        <li><code>OBB_MODEL_PATH</code></li>
+                        <li><code>DEBUG</code> (False in production)</li>
+                    </ul>
+                </li>
+                <li><strong>Update app.py</strong> to use config class instead of hardcoded values</li>
+                <li><strong>Remove <code>debug=True</code></strong> from Flask run</li>
+            </ol>
+        </div>
+
+        <div class="phase">
+            <div class="phase-header">
+                <div class="phase-number">3</div>
+                <h3>Silent Training Data Collection</h3>
+            </div>
+            <div class="phase-files">Files to modify: app.py</div>
+            <ol>
+                <li><strong>Modify <code>/api/download</code> endpoint</strong> to silently save training data:
+                    <ul>
+                        <li>Save original uploaded image to <code>training_data/obb/images/</code></li>
+                        <li>Save bounding boxes (from user edits) to <code>training_data/obb/labels/</code></li>
+                        <li>Use YOLO OBB format: <code>&lt;class&gt; &lt;x1&gt; &lt;y1&gt; &lt;x2&gt; &lt;y2&gt; &lt;x3&gt; &lt;y3&gt; &lt;x4&gt; &lt;y4&gt;</code></li>
+                        <li>Generate unique filenames with timestamps</li>
+                    </ul>
+                </li>
+                <li><strong>Modify <code>/api/download_bulk</code></strong> similarly for bulk downloads</li>
+                <li><strong>Keep existing <code>/api/save_training_sample</code></strong> as backup method</li>
+                <li><strong>Data format:</strong>
+<pre>training_data/obb/
+├── images/
+│   └── manga_20260118_abc123.png
+└── labels/
+    └── manga_20260118_abc123.txt</pre>
+                </li>
+            </ol>
+        </div>
+
+        <div class="phase">
+            <div class="phase-header">
+                <div class="phase-number">4</div>
+                <h3>Deployment Setup</h3>
+            </div>
+            <div class="phase-files">Files to create: Dockerfile, render.yaml, .dockerignore | Files to modify: requirements.txt</div>
+            <ol>
+                <li><strong>Update requirements.txt:</strong>
+<pre>flask>=2.0.0
+flask-cors>=3.0.0
+flask-limiter>=3.0.0
+opencv-python-headless>=4.5.0
+numpy>=1.20.0
+ultralytics>=8.0.0
+gunicorn>=21.0.0
+pillow>=9.0.0</pre>
+                </li>
+                <li><strong>Create Dockerfile:</strong>
+                    <ul>
+                        <li>Base: <code>python:3.10-slim</code></li>
+                        <li>Install OpenCV dependencies (libgl1, libglib2.0)</li>
+                        <li>Copy models to <code>/app/models/</code></li>
+                        <li>Run with gunicorn on port 8000</li>
+                    </ul>
+                </li>
+                <li><strong>Create render.yaml:</strong>
+                    <ul>
+                        <li>Web service with Docker</li>
+                        <li>Persistent disk (10GB) mounted at <code>/app/training_data</code></li>
+                        <li>Environment variables for config</li>
+                    </ul>
+                </li>
+                <li><strong>Create .dockerignore:</strong>
+                    <ul>
+                        <li>Exclude <code>__pycache__</code>, <code>*.pyc</code>, <code>uploads/</code>, <code>output/</code>, <code>.git</code></li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <div class="phase">
+            <div class="phase-header">
+                <div class="phase-number">5</div>
+                <h3>Frontend Updates</h3>
+            </div>
+            <div class="phase-files">Files to modify: static/index.html</div>
+            <ol>
+                <li><strong>Remove any debug UI elements</strong> (if present)</li>
+                <li><strong>Add error handling</strong> for slow/failed requests</li>
+                <li><strong>Ensure relative API URLs</strong> (already in place, verify)</li>
+            </ol>
+        </div>
+
+        <div class="phase">
+            <div class="phase-header">
+                <div class="phase-number">6</div>
+                <h3>Deploy to Render.com</h3>
+            </div>
+            <ol>
+                <li>Push code to GitHub repository</li>
+                <li>Connect Render.com to GitHub repo</li>
+                <li>Configure environment variables:
+                    <ul>
+                        <li><code>SECRET_KEY</code> (auto-generate)</li>
+                        <li><code>YOLO_MODEL_PATH=/app/models/manga109_yolo.pt</code></li>
+                    </ul>
+                </li>
+                <li>Deploy and test</li>
+                <li>Configure custom domain (optional)</li>
+            </ol>
+        </div>
+
+        <h2>Files Summary</h2>
+
+        <h3>Files to Modify</h3>
+        <table>
+            <tr>
+                <th>File</th>
+                <th>Changes</th>
+            </tr>
+            <tr>
+                <td>app.py</td>
+                <td>Security hardening, config integration, training data on download</td>
+            </tr>
+            <tr>
+                <td>requirements.txt</td>
+                <td>Add production dependencies</td>
+            </tr>
+            <tr>
+                <td>static/index.html</td>
+                <td>Remove debug features, verify API URLs</td>
+            </tr>
+        </table>
+
+        <h3>Files to Create</h3>
+        <table>
+            <tr>
+                <th>File</th>
+                <th>Purpose</th>
+            </tr>
+            <tr>
+                <td>config.py</td>
+                <td>Environment-based configuration</td>
+            </tr>
+            <tr>
+                <td>Dockerfile</td>
+                <td>Container definition for Render</td>
+            </tr>
+            <tr>
+                <td>render.yaml</td>
+                <td>Render.com deployment config</td>
+            </tr>
+            <tr>
+                <td>.dockerignore</td>
+                <td>Exclude unnecessary files from Docker</td>
+            </tr>
+        </table>
+
+        <h2>Verification Plan</h2>
+
+        <div class="verification">
+            <h4>1. Local Docker Test</h4>
+<pre>docker build -t manga-slicer .
+docker run -p 8000:8000 manga-slicer</pre>
+        </div>
+
+        <div class="verification">
+            <h4>2. Test Endpoints</h4>
+            <ul>
+                <li>Upload image &rarr; auto-detect &rarr; verify panels detected</li>
+                <li>Edit panels &rarr; download &rarr; verify training data saved</li>
+                <li>Check rate limiting works</li>
+            </ul>
+        </div>
+
+        <div class="verification">
+            <h4>3. Production Test</h4>
+            <ul>
+                <li>Deploy to Render staging</li>
+                <li>Test full workflow end-to-end</li>
+                <li>Verify training data persists on disk</li>
+                <li>Check no model info exposed in responses</li>
+            </ul>
+        </div>
+
+        <div class="notes">
+            <h2>Important Notes</h2>
+            <ul>
+                <li><strong>Model size:</strong> ~25MB total (manga109_yolo.pt + manga_panels_obb.pt)</li>
+                <li><strong>Render free tier:</strong> May have cold starts; consider paid tier for better UX</li>
+                <li><strong>Training data sync:</strong> Periodically download from Render disk for local OBB training</li>
+                <li><strong>Future:</strong> Can add Cloudflare CDN in front of Render for static assets</li>
+            </ul>
+        </div>
+
+        <div class="footer">
+            <p>Generated: January 18, 2026 | Manga Panel Slicer Deployment Plan</p>
+        </div>
+    </div>
+</body>
+</html>

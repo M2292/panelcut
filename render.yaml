@@ -1,0 +1,35 @@
+# Render.com deployment configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: manga-panel-slicer
+    runtime: python
+    plan: starter  # or 'free' for testing
+
+    # Build command
+    buildCommand: pip install -r requirements.txt
+
+    # Start command (gunicorn for production)
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 app:app
+
+    # Environment variables
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+    # Persistent disk for training data collection
+    disk:
+      name: training-data
+      mountPath: /app/training_data
+      sizeGB: 10
+
+    # Health check
+    healthCheckPath: /api/health
+
+    # Auto-deploy on push (if connected to GitHub)
+    autoDeploy: true

@@ -1,0 +1,20 @@
+# Core dependencies
+flask>=2.0.0
+flask-cors>=3.0.0
+opencv-python-headless>=4.5.0
+numpy>=1.20.0
+
+# ML detection (YOLO)
+ultralytics>=8.0.0
+
+# Production server
+gunicorn>=21.0.0
+
+# Rate limiting (optional for local, recommended for production)
+flask-limiter>=3.0.0
+
+# Image processing
+pillow>=9.0.0
+
+# Optional: Advanced PSD support
+# psd-tools>=1.9.0

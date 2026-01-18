@@ -1,0 +1,2796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manga Panel Slicer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0f0f0f;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #252525;
+            --accent: #ff6b6b;
+            --accent-hover: #ff8787;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --border: #333333;
+            --success: #4caf50;
+            --warning: #ff9800;
+            --info: #2196f3;
+            --shadow: rgba(0, 0, 0, 0.3);
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Compact Header */
+        header {
+            padding: 12px 20px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        .logo {
+            font-size: 1.4rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent) 0%, #ffa07a 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-info {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .new-page-btn {
+            padding: 10px 20px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent) 0%, #ff8a65 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
+        }
+
+        .new-page-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+        }
+
+        .new-page-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Main Layout */
+        .main-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        /* Canvas Area (Left) */
+        .canvas-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: var(--bg-primary);
+            position: relative;
+            overflow: hidden;
+            min-width: 0;
+        }
+
+        /* Drop Zone (shown when no image) */
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            padding: 60px 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: var(--bg-secondary);
+            max-width: 500px;
+        }
+
+        .drop-zone:hover,
+        .drop-zone.dragover {
+            border-color: var(--accent);
+            background: rgba(255, 107, 107, 0.05);
+        }
+
+        .drop-zone.hidden {
+            display: none;
+        }
+
+        .drop-zone-icon {
+            font-size: 4rem;
+            margin-bottom: 15px;
+            opacity: 0.7;
+        }
+
+        .drop-zone-text {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        /* Canvas Wrapper */
+        .canvas-wrapper {
+            position: relative;
+            display: none;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .canvas-wrapper.active {
+            display: block;
+        }
+
+        #editorCanvas {
+            display: block;
+            max-width: 100%;
+            max-height: 100%;
+            cursor: crosshair;
+        }
+
+        .canvas-wrapper.eraser-mode #editorCanvas {
+            cursor: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="%23ff6b6b" fill-opacity="0.3" stroke="%23ff0000" stroke-width="2"/><line x1="7" y1="7" x2="17" y2="17" stroke="%23ff0000" stroke-width="2"/><line x1="17" y1="7" x2="7" y2="17" stroke="%23ff0000" stroke-width="2"/></svg>') 12 12, auto;
+        }
+
+        /* Panels Sidebar (Right) */
+        .panels-sidebar {
+            width: 280px;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sidebar-title {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .panel-count-badge {
+            background: var(--accent);
+            color: white;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .sidebar-actions {
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+        }
+
+        .sidebar-actions.hidden {
+            display: none;
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .sidebar-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 20px;
+        }
+
+        .sidebar-empty-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        /* Panel Thumbnails */
+        .panels-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .panel-thumb {
+            position: relative;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .panel-thumb:hover {
+            border-color: var(--accent);
+        }
+
+        .panel-thumb.selected {
+            border-color: var(--success);
+        }
+
+        .panel-thumb.unselected {
+            opacity: 0.5;
+        }
+
+        .panel-thumb img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .panel-thumb-number {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            background: var(--accent);
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.75rem;
+        }
+
+        .panel-thumb-checkbox {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: var(--success);
+        }
+
+        /* Bottom Toolbar */
+        .bottom-toolbar {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toolbar-group.hidden {
+            display: none;
+        }
+
+        .toolbar-divider {
+            width: 1px;
+            height: 28px;
+            background: var(--border);
+            margin: 0 5px;
+        }
+
+        .toolbar-spacer {
+            flex: 1;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--accent-hover);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: var(--border);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #45a049;
+        }
+
+        .btn-success:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: white;
+        }
+
+        .btn-info {
+            background: var(--info);
+            color: white;
+        }
+
+        .btn.active {
+            box-shadow: 0 0 0 2px var(--accent);
+        }
+
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 0.8rem;
+        }
+
+        /* Toggle */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .toggle {
+            position: relative;
+            width: 40px;
+            height: 22px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            transition: 0.3s;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        .toggle input:checked + .toggle-slider {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .toggle input:checked + .toggle-slider:before {
+            transform: translateX(18px);
+            background: white;
+        }
+
+        /* Select dropdown */
+        .select-small {
+            padding: 6px 10px;
+            border-radius: 6px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-content {
+            text-align: center;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toast notifications */
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .panels-sidebar {
+                width: 200px;
+            }
+        }
+
+        @media (max-width: 700px) {
+            .main-container {
+                flex-direction: column;
+            }
+
+            .panels-sidebar {
+                width: 100%;
+                height: 200px;
+                border-left: none;
+                border-top: 1px solid var(--border);
+            }
+
+            .sidebar-content {
+                display: flex;
+                overflow-x: auto;
+                overflow-y: hidden;
+            }
+
+            .panels-list {
+                flex-direction: row;
+            }
+
+            .panel-thumb {
+                min-width: 120px;
+            }
+
+            .bottom-toolbar {
+                padding: 10px;
+            }
+
+            .btn {
+                padding: 6px 12px;
+                font-size: 0.8rem;
+            }
+        }
+
+        /* Page Navigator (Bulk Mode) */
+        .page-navigator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            padding: 10px 15px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .page-indicator {
+            font-weight: 600;
+            min-width: 100px;
+            text-align: center;
+            color: var(--text-primary);
+        }
+
+        /* Page Thumbnails Strip */
+        .page-thumbs-strip {
+            display: flex;
+            gap: 8px;
+            padding: 10px;
+            overflow-x: auto;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .page-thumb {
+            position: relative;
+            width: 50px;
+            height: 70px;
+            flex-shrink: 0;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            opacity: 0.6;
+            transition: all 0.2s;
+        }
+
+        .page-thumb:hover {
+            opacity: 0.9;
+        }
+
+        .page-thumb.active {
+            border-color: var(--accent);
+            opacity: 1;
+        }
+
+        .page-thumb.detected {
+            border-color: var(--success);
+        }
+
+        .page-thumb.detected.active {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--success);
+        }
+
+        .page-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .page-thumb-number {
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            font-size: 9px;
+            padding: 1px 4px;
+            border-radius: 2px;
+        }
+
+        .page-thumb-status {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--warning);
+        }
+
+        .page-thumb.detected .page-thumb-status {
+            background: var(--success);
+        }
+
+        .page-thumb.extracted .page-thumb-status {
+            background: var(--info);
+        }
+
+        /* Bulk mode toolbar additions */
+        .bulk-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .bulk-progress {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-left: 10px;
+        }
+
+        /* Panel drag-and-drop reordering */
+        .panel-thumb.dragging {
+            opacity: 0.5;
+            transform: scale(0.95);
+        }
+
+        .panel-thumb.drag-over {
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 0 2px var(--accent);
+        }
+
+        .panel-thumb .drag-handle {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: rgba(0,0,0,0.6);
+            border-radius: 3px;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: white;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 2;
+        }
+
+        .panel-thumb:hover .drag-handle {
+            opacity: 1;
+        }
+
+        .panel-thumb .drag-handle:active {
+            cursor: grabbing;
+        }
+
+        .reorder-hint {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 4px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* View Toggle */
+        .sidebar-header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .view-toggle {
+            display: flex;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .view-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .view-btn:hover {
+            color: var(--text-primary);
+            background: var(--border);
+        }
+
+        .view-btn.active {
+            background: var(--accent);
+            color: white;
+        }
+
+        /* Grid View Mode */
+        .panels-list.grid-view {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+            gap: 6px;
+        }
+
+        .panels-list.grid-view .reorder-hint {
+            grid-column: 1 / -1;
+        }
+
+        .panels-list.grid-view .panel-thumb {
+            aspect-ratio: 3/4;
+        }
+
+        .panels-list.grid-view .panel-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .panels-list.grid-view .panel-thumb-number {
+            font-size: 9px;
+            padding: 1px 3px;
+        }
+
+        .panels-list.grid-view .panel-thumb-checkbox {
+            width: 12px;
+            height: 12px;
+        }
+
+        .panels-list.grid-view .drag-handle {
+            width: 14px;
+            height: 14px;
+            font-size: 9px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Compact Header -->
+    <header>
+        <div class="logo">Manga Panel Slicer</div>
+        <button class="new-page-btn" id="newPageBtn" style="display: none;">+ New Page</button>
+        <div class="header-info" id="headerInfo">Upload an image to start</div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="main-container">
+        <!-- Canvas Area -->
+        <div class="canvas-area" id="canvasArea">
+            <!-- Drop Zone (shown when no image) -->
+            <div class="drop-zone" id="dropZone">
+                <div class="drop-zone-icon">&#128444;</div>
+                <p class="drop-zone-text">Drop manga page(s) here<br>or click to browse<br><small style="opacity: 0.7;">Select multiple for bulk mode</small></p>
+                <input type="file" class="file-input" id="fileInput" accept="image/*" multiple>
+            </div>
+
+            <!-- Canvas (shown when image loaded) -->
+            <div class="canvas-wrapper" id="canvasWrapper">
+                <canvas id="editorCanvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Panels Sidebar -->
+        <div class="panels-sidebar">
+            <!-- Page Navigator (Bulk Mode) -->
+            <div class="page-navigator" id="pageNavigator" style="display: none;">
+                <button class="btn btn-small btn-secondary" id="prevPageBtn" disabled>&lt;</button>
+                <span class="page-indicator" id="pageIndicator">Page 1 / 1</span>
+                <button class="btn btn-small btn-secondary" id="nextPageBtn" disabled>&gt;</button>
+            </div>
+            <!-- Page Thumbnails Strip (Bulk Mode) -->
+            <div class="page-thumbs-strip" id="pageThumbsStrip" style="display: none;">
+                <!-- Populated dynamically -->
+            </div>
+            <div class="sidebar-header">
+                <span class="sidebar-title">Panels</span>
+                <div class="sidebar-header-right">
+                    <div class="view-toggle" id="viewToggle">
+                        <button class="view-btn active" id="listViewBtn" title="List view">&#9776;</button>
+                        <button class="view-btn" id="gridViewBtn" title="Grid view">&#9638;</button>
+                    </div>
+                    <span class="panel-count-badge" id="panelCountBadge">0</span>
+                </div>
+            </div>
+            <div class="sidebar-actions hidden" id="sidebarActions">
+                <button class="btn btn-small btn-secondary" id="selectAllBtn">All</button>
+                <button class="btn btn-small btn-secondary" id="deselectAllBtn">None</button>
+            </div>
+            <div class="sidebar-content" id="sidebarContent">
+                <div class="sidebar-empty" id="sidebarEmpty">
+                    <div class="sidebar-empty-icon">&#128247;</div>
+                    <p>Upload an image and click<br><strong>Auto-Detect</strong> to find panels</p>
+                </div>
+                <div class="panels-list" id="panelsList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Toolbar -->
+    <div class="bottom-toolbar">
+        <!-- Primary Actions -->
+        <div class="toolbar-group" id="primaryActions">
+            <button class="btn btn-info" id="autoDetectBtn" disabled>Auto-Detect</button>
+            <button class="btn btn-success" id="extractBtn" disabled>Extract Panels</button>
+        </div>
+
+        <!-- Bulk Actions (shown in bulk mode) -->
+        <div class="toolbar-group hidden" id="bulkActions">
+            <button class="btn btn-info" id="detectAllBtn">Detect All</button>
+            <button class="btn btn-success" id="extractAllBtn" disabled>Extract All</button>
+            <span class="bulk-progress" id="bulkProgress"></span>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <!-- Edit Tools (shown after detection) -->
+        <div class="toolbar-group hidden" id="editTools">
+            <button class="btn btn-secondary active" id="rectBtn" title="Draw rectangle (R)">Rect</button>
+            <button class="btn btn-secondary" id="eraserBtn" title="Delete panel (D)">Delete</button>
+            <button class="btn btn-secondary" id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
+            <button class="btn btn-secondary" id="redoBtn" title="Redo (Ctrl+Y)">Redo</button>
+            <button class="btn btn-secondary" id="clearBtn" title="Clear all panels">Clear</button>
+        </div>
+
+        <div class="toolbar-divider hidden" id="editDivider"></div>
+
+        <!-- Options -->
+        <div class="toolbar-group" id="optionsGroup">
+            <div class="toggle-container">
+                <span>LTR</span>
+                <label class="toggle">
+                    <input type="checkbox" id="rtlToggle" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span>RTL</span>
+            </div>
+            <select class="select-small" id="modelSelect">
+                <option value="yolo">YOLO</option>
+                <option value="obb">OBB</option>
+            </select>
+        </div>
+
+        <div class="toolbar-spacer"></div>
+
+        <!-- Export (shown after extraction) -->
+        <div class="toolbar-group hidden" id="exportTools">
+            <button class="btn btn-success" id="downloadBtn" disabled>Download ZIP</button>
+            <button class="btn btn-info" id="downloadPsdBtn" disabled>Download PSD</button>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loading">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p>Processing...</p>
+        </div>
+    </div>
+
+    <script>
+        // =====================================================================
+        // STATE
+        // =====================================================================
+        let currentImage = null;
+        let currentImageData = null;
+        let currentPanels = [];
+        let selectedPanels = new Set();
+        let rectangles = [];
+        let lastExtractedRectangles = null;
+        let currentRect = null;
+        let selectedRect = null;
+        let draggedCorner = null;
+        let hoveredCorner = null;
+        let rectStartPos = null;
+        let dragStartPos = null;  // For dragging entire rectangles
+        let isDraggingRect = false;
+        let cornerDragStartPos = null;  // For Ctrl+drag straight line constraint
+        let history = [];
+        let redoHistory = [];
+        let currentTool = 'rect';
+        let isDrawing = false;
+        let scale = 1;
+        let mousePos = null;
+        let lastYoloResult = null;
+
+        // Bulk mode state
+        let bulkMode = false;
+        let bulkPages = [];  // Array of page objects
+        let currentPageIndex = 0;
+        // Page object structure:
+        // { file, fileName, imageData, image, rectangles, panels, detected, extracted }
+
+        const CORNER_SIZE = 10;
+
+        // Mask canvas for editing
+        let maskCanvas = null;
+        let maskCtx = null;
+
+        // =====================================================================
+        // DOM ELEMENTS
+        // =====================================================================
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const canvasWrapper = document.getElementById('canvasWrapper');
+        const canvas = document.getElementById('editorCanvas');
+        const ctx = canvas.getContext('2d');
+        const canvasArea = document.getElementById('canvasArea');
+        const headerInfo = document.getElementById('headerInfo');
+
+        // Sidebar
+        const sidebarContent = document.getElementById('sidebarContent');
+        const sidebarEmpty = document.getElementById('sidebarEmpty');
+        const panelsList = document.getElementById('panelsList');
+        const panelCountBadge = document.getElementById('panelCountBadge');
+        const sidebarActions = document.getElementById('sidebarActions');
+        const listViewBtn = document.getElementById('listViewBtn');
+        const gridViewBtn = document.getElementById('gridViewBtn');
+
+        // View mode state
+        let currentViewMode = 'list'; // 'list' or 'grid'
+
+        // Toolbar
+        const autoDetectBtn = document.getElementById('autoDetectBtn');
+        const extractBtn = document.getElementById('extractBtn');
+        const editTools = document.getElementById('editTools');
+        const editDivider = document.getElementById('editDivider');
+        const exportTools = document.getElementById('exportTools');
+        const rectBtn = document.getElementById('rectBtn');
+        const eraserBtn = document.getElementById('eraserBtn');
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const downloadPsdBtn = document.getElementById('downloadPsdBtn');
+        const rtlToggle = document.getElementById('rtlToggle');
+        const modelSelect = document.getElementById('modelSelect');
+        const selectAllBtn = document.getElementById('selectAllBtn');
+        const deselectAllBtn = document.getElementById('deselectAllBtn');
+        const newPageBtn = document.getElementById('newPageBtn');
+
+        // Bulk mode elements
+        const pageNavigator = document.getElementById('pageNavigator');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const pageIndicator = document.getElementById('pageIndicator');
+        const pageThumbsStrip = document.getElementById('pageThumbsStrip');
+        const bulkActions = document.getElementById('bulkActions');
+        const detectAllBtn = document.getElementById('detectAllBtn');
+        const extractAllBtn = document.getElementById('extractAllBtn');
+        const bulkProgress = document.getElementById('bulkProgress');
+
+        const loading = document.getElementById('loading');
+
+        // =====================================================================
+        // FILE UPLOAD
+        // =====================================================================
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFiles(e.target.files);
+        });
+
+        // Helper functions for async file/image loading
+        function readFileAsDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = src;
+            });
+        }
+
+        async function handleFiles(files) {
+            // Filter for image files only
+            const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+            if (imageFiles.length === 0) {
+                alert('Please select image file(s)');
+                return;
+            }
+
+            if (imageFiles.length === 1) {
+                // Single file - use existing behavior
+                handleFile(imageFiles[0]);
+                return;
+            }
+
+            // Multiple files - enter bulk mode
+            loading.classList.add('active');
+            updateLoadingText('Loading images...');
+
+            try {
+                bulkMode = true;
+                bulkPages = [];
+
+                // Sort files by name for consistent ordering
+                const sortedFiles = imageFiles.sort((a, b) =>
+                    a.name.localeCompare(b.name, undefined, {numeric: true})
+                );
+
+                for (let i = 0; i < sortedFiles.length; i++) {
+                    updateLoadingText(`Loading image ${i + 1} of ${sortedFiles.length}...`);
+                    const file = sortedFiles[i];
+                    const imageData = await readFileAsDataURL(file);
+                    const image = await loadImage(imageData);
+
+                    bulkPages.push({
+                        file: file,
+                        fileName: file.name,
+                        imageData: imageData,
+                        image: image,
+                        rectangles: [],
+                        panels: [],
+                        detected: false,
+                        extracted: false
+                    });
+                }
+
+                currentPageIndex = 0;
+                showBulkMode();
+                loadPage(0, true);  // Skip save on initial load
+            } catch (error) {
+                console.error('Error loading images:', error);
+                alert('Error loading images: ' + error.message);
+                bulkMode = false;
+                bulkPages = [];
+            } finally {
+                loading.classList.remove('active');
+            }
+        }
+
+        function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file');
+                return;
+            }
+
+            // Reset bulk mode when loading single file
+            bulkMode = false;
+            bulkPages = [];
+            currentPageIndex = 0;
+            hideBulkMode();
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                currentImageData = e.target.result;
+                const img = new Image();
+                img.onload = () => {
+                    currentImage = img;
+                    initCanvas();
+                    showImageLoaded();
+                };
+                img.src = currentImageData;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function showImageLoaded() {
+            dropZone.classList.add('hidden');
+            canvasWrapper.classList.add('active');
+            autoDetectBtn.disabled = false;
+            headerInfo.textContent = `${currentImage.width} x ${currentImage.height} px`;
+
+            // Reset state
+            rectangles = [];
+            currentPanels = [];
+            selectedPanels.clear();
+            history = [];
+            redoHistory = [];
+            lastYoloResult = null;
+
+            // Update UI
+            updateExtractButton();
+            hideEditTools();
+            hideExportTools();
+            showNewPageBtn(); // Show New Page button once image is loaded
+            clearPanelsList();
+            sidebarEmpty.querySelector('p').innerHTML = 'Click <strong>Auto-Detect</strong><br>to find panels';
+
+            redraw();
+        }
+
+        function initCanvas() {
+            const container = canvasArea;
+            const maxWidth = container.clientWidth - 40;
+            const maxHeight = container.clientHeight - 40;
+
+            scale = Math.min(maxWidth / currentImage.width, maxHeight / currentImage.height, 1);
+
+            canvas.width = currentImage.width * scale;
+            canvas.height = currentImage.height * scale;
+
+            // Initialize mask canvas at full resolution
+            maskCanvas = document.createElement('canvas');
+            maskCanvas.width = currentImage.width;
+            maskCanvas.height = currentImage.height;
+            maskCtx = maskCanvas.getContext('2d');
+            maskCtx.fillStyle = '#ffffff';
+            maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+        }
+
+        // =====================================================================
+        // DRAWING
+        // =====================================================================
+        function redraw() {
+            if (!currentImage) return;
+
+            ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+            drawRectangles();
+        }
+
+        const rectColors = [
+            '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF',
+            '#00FFFF', '#FF8000', '#8000FF', '#00FF80', '#0080FF',
+        ];
+
+        function drawRectangles() {
+            rectangles.forEach((rect, index) => {
+                drawRectangle(rect, rect === selectedRect, index);
+            });
+
+            if (currentRect) {
+                drawRectangle(currentRect, true, -1);
+            }
+        }
+
+        function drawRectangle(rect, isSelected, index) {
+            if (!rect || !rect.corners || rect.corners.length < 3) return;
+
+            const corners = rect.corners;
+            const baseColor = index >= 0 ? rectColors[index % rectColors.length] : '#00FF00';
+            const strokeColor = isSelected ? '#FFFFFF' : baseColor;
+
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 3 * scale;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            ctx.beginPath();
+            ctx.moveTo(corners[0].x * scale, corners[0].y * scale);
+            for (let i = 1; i < corners.length; i++) {
+                ctx.lineTo(corners[i].x * scale, corners[i].y * scale);
+            }
+            ctx.closePath();
+            ctx.stroke();
+
+            ctx.fillStyle = baseColor + '30';
+            ctx.fill();
+
+            // Corner handles if selected
+            if (isSelected) {
+                corners.forEach((corner, i) => {
+                    const isHovered = (rect === selectedRect && i === hoveredCorner);
+                    const canDelete = corners.length > 3;
+
+                    if (isHovered && canDelete) {
+                        ctx.fillStyle = '#ff4444';
+                        ctx.strokeStyle = '#cc0000';
+                    } else {
+                        ctx.fillStyle = '#ffffff';
+                        ctx.strokeStyle = baseColor;
+                    }
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(corner.x * scale, corner.y * scale, CORNER_SIZE, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                });
+            }
+
+            // Panel number label
+            if (index >= 0) {
+                const label = (index + 1).toString();
+                const centerX = corners.reduce((sum, c) => sum + c.x, 0) / corners.length;
+                const centerY = corners.reduce((sum, c) => sum + c.y, 0) / corners.length;
+
+                ctx.font = `bold ${Math.max(16, 24 * scale)}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                const metrics = ctx.measureText(label);
+                const padding = 6 * scale;
+                ctx.fillStyle = baseColor;
+                ctx.fillRect(
+                    centerX * scale - metrics.width / 2 - padding,
+                    centerY * scale - 12 * scale - padding,
+                    metrics.width + padding * 2,
+                    24 * scale + padding * 2
+                );
+
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillText(label, centerX * scale, centerY * scale);
+            }
+        }
+
+        // =====================================================================
+        // CANVAS INTERACTION
+        // =====================================================================
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left) / scale,
+                y: (e.clientY - rect.top) / scale
+            };
+        }
+
+        function getCornerAtPos(rect, pos) {
+            if (!rect || !rect.corners) return -1;
+            const threshold = 20 / scale;
+            let closestDist = Infinity;
+            let closestIdx = -1;
+            for (let i = 0; i < rect.corners.length; i++) {
+                const corner = rect.corners[i];
+                const dx = pos.x - corner.x;
+                const dy = pos.y - corner.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < threshold && dist < closestDist) {
+                    closestDist = dist;
+                    closestIdx = i;
+                }
+            }
+            return closestIdx;
+        }
+
+        function isInsideRect(rect, pos) {
+            if (!rect || !rect.corners || rect.corners.length < 3) return false;
+            const corners = rect.corners;
+            const n = corners.length;
+            let inside = false;
+            for (let i = 0, j = n - 1; i < n; j = i++) {
+                const xi = corners[i].x, yi = corners[i].y;
+                const xj = corners[j].x, yj = corners[j].y;
+                if (((yi > pos.y) !== (yj > pos.y)) &&
+                    (pos.x < (xj - xi) * (pos.y - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        }
+
+        function getEdgeAtPos(rect, pos) {
+            if (!rect || !rect.corners || rect.corners.length < 3) return { edge: -1, dist: Infinity };
+            const corners = rect.corners;
+            const n = corners.length;
+            let closestEdge = -1;
+            let closestDist = Infinity;
+            const threshold = 15 / scale;
+
+            for (let i = 0; i < n; i++) {
+                const j = (i + 1) % n;
+                const dist = pointToSegmentDistance(pos, corners[i], corners[j]);
+                if (dist < threshold && dist < closestDist) {
+                    closestDist = dist;
+                    closestEdge = i;
+                }
+            }
+            return { edge: closestEdge, dist: closestDist };
+        }
+
+        function pointToSegmentDistance(p, a, b) {
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const lenSq = dx * dx + dy * dy;
+            if (lenSq === 0) return Math.sqrt((p.x - a.x) ** 2 + (p.y - a.y) ** 2);
+
+            let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+
+            const nearestX = a.x + t * dx;
+            const nearestY = a.y + t * dy;
+            return Math.sqrt((p.x - nearestX) ** 2 + (p.y - nearestY) ** 2);
+        }
+
+        function addPointToEdge(rect, edgeIdx, pos) {
+            if (!rect || edgeIdx < 0 || edgeIdx >= rect.corners.length) return;
+            rect.corners.splice(edgeIdx + 1, 0, { x: pos.x, y: pos.y });
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 2) return;
+            const pos = getMousePos(e);
+
+            if (currentTool === 'eraser') {
+                deleteRectangleAt(pos);
+            } else if (currentTool === 'rect') {
+                handleRectMouseDown(pos);
+            }
+        });
+
+        function handleRectMouseDown(pos) {
+            // PRIORITY: Check selected rectangle's corners first (solves overlap issue)
+            if (selectedRect) {
+                const cornerIdx = getCornerAtPos(selectedRect, pos);
+                if (cornerIdx >= 0) {
+                    saveHistory();
+                    draggedCorner = cornerIdx;
+                    cornerDragStartPos = { ...selectedRect.corners[cornerIdx] };
+                    isDrawing = true;
+                    canvas.style.cursor = 'grabbing';
+                    redraw();
+                    return;
+                }
+            }
+
+            // Then check other rectangles for corner hits
+            for (let i = rectangles.length - 1; i >= 0; i--) {
+                const rect = rectangles[i];
+                if (rect === selectedRect) continue; // Already checked
+                const cornerIdx = getCornerAtPos(rect, pos);
+                if (cornerIdx >= 0) {
+                    saveHistory();
+                    selectedRect = rect;
+                    draggedCorner = cornerIdx;
+                    cornerDragStartPos = { ...rect.corners[cornerIdx] };
+                    isDrawing = true;
+                    canvas.style.cursor = 'grabbing';
+                    redraw();
+                    return;
+                }
+            }
+
+            // Check for clicks inside rectangles (selected rect has priority) - start dragging
+            if (selectedRect && isInsideRect(selectedRect, pos)) {
+                saveHistory();
+                isDraggingRect = true;
+                dragStartPos = { x: pos.x, y: pos.y };
+                isDrawing = true;
+                canvas.style.cursor = 'grabbing';
+                return;
+            }
+
+            for (let i = rectangles.length - 1; i >= 0; i--) {
+                const rect = rectangles[i];
+                if (rect === selectedRect) continue;
+                if (isInsideRect(rect, pos)) {
+                    saveHistory();
+                    selectedRect = rect;
+                    isDraggingRect = true;
+                    dragStartPos = { x: pos.x, y: pos.y };
+                    isDrawing = true;
+                    canvas.style.cursor = 'grabbing';
+                    redraw();
+                    return;
+                }
+            }
+
+            // Start drawing new rectangle
+            saveHistory();
+            selectedRect = null;
+            rectStartPos = pos;
+            currentRect = {
+                corners: [
+                    { x: pos.x, y: pos.y },
+                    { x: pos.x, y: pos.y },
+                    { x: pos.x, y: pos.y },
+                    { x: pos.x, y: pos.y }
+                ]
+            };
+            isDrawing = true;
+            redraw();
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            mousePos = getMousePos(e);
+
+            if (currentTool === 'rect') {
+                handleRectMouseMove(mousePos, e.ctrlKey);
+                updateRectCursor(mousePos);
+            }
+        });
+
+        function updateRectCursor(pos) {
+            // PRIORITY: Check selected rectangle first for corner hover
+            if (selectedRect) {
+                const cornerIdx = getCornerAtPos(selectedRect, pos);
+                if (cornerIdx >= 0) {
+                    hoveredCorner = cornerIdx;
+                    canvas.style.cursor = 'grab';
+                    redraw();
+                    return;
+                }
+            }
+
+            // Then check other rectangles
+            for (let i = rectangles.length - 1; i >= 0; i--) {
+                const rect = rectangles[i];
+                if (rect === selectedRect) continue;
+                const cornerIdx = getCornerAtPos(rect, pos);
+                if (cornerIdx >= 0) {
+                    canvas.style.cursor = 'grab';
+                    if (hoveredCorner !== null) {
+                        hoveredCorner = null;
+                        redraw();
+                    }
+                    return;
+                }
+            }
+
+            if (hoveredCorner !== null) {
+                hoveredCorner = null;
+                redraw();
+            }
+
+            // Check edges (selected rect first)
+            if (selectedRect) {
+                const edgeInfo = getEdgeAtPos(selectedRect, pos);
+                if (edgeInfo.edge >= 0) {
+                    canvas.style.cursor = 'cell';
+                    return;
+                }
+            }
+            for (let i = rectangles.length - 1; i >= 0; i--) {
+                if (rectangles[i] === selectedRect) continue;
+                const edgeInfo = getEdgeAtPos(rectangles[i], pos);
+                if (edgeInfo.edge >= 0) {
+                    canvas.style.cursor = 'cell';
+                    return;
+                }
+            }
+
+            // Check inside (selected rect first) - show move cursor
+            if (selectedRect && isInsideRect(selectedRect, pos)) {
+                canvas.style.cursor = 'move';
+                return;
+            }
+            for (let i = rectangles.length - 1; i >= 0; i--) {
+                if (rectangles[i] === selectedRect) continue;
+                if (isInsideRect(rectangles[i], pos)) {
+                    canvas.style.cursor = 'move';
+                    return;
+                }
+            }
+
+            canvas.style.cursor = 'crosshair';
+        }
+
+        function handleRectMouseMove(pos, ctrlKey = false) {
+            if (!isDrawing) return;
+
+            // Dragging a corner - clamp to image bounds independently for each axis
+            if (draggedCorner !== null && selectedRect) {
+                let targetX = pos.x;
+                let targetY = pos.y;
+
+                // Ctrl+drag constrains to horizontal or vertical movement
+                if (ctrlKey && cornerDragStartPos) {
+                    const dx = Math.abs(pos.x - cornerDragStartPos.x);
+                    const dy = Math.abs(pos.y - cornerDragStartPos.y);
+                    if (dx > dy) {
+                        // Horizontal movement - lock Y
+                        targetY = cornerDragStartPos.y;
+                    } else {
+                        // Vertical movement - lock X
+                        targetX = cornerDragStartPos.x;
+                    }
+                }
+
+                // Clamp each axis independently so you can still move along one edge
+                const clampedX = Math.max(0, Math.min(currentImage.width, targetX));
+                const clampedY = Math.max(0, Math.min(currentImage.height, targetY));
+                selectedRect.corners[draggedCorner] = { x: clampedX, y: clampedY };
+                redraw();
+                return;
+            }
+
+            // Dragging entire rectangle
+            if (isDraggingRect && selectedRect && dragStartPos) {
+                const dx = pos.x - dragStartPos.x;
+                const dy = pos.y - dragStartPos.y;
+
+                // Calculate new positions and check bounds
+                const newCorners = selectedRect.corners.map(c => ({
+                    x: c.x + dx,
+                    y: c.y + dy
+                }));
+
+                // Check if any corner would go out of bounds
+                const minX = Math.min(...newCorners.map(c => c.x));
+                const maxX = Math.max(...newCorners.map(c => c.x));
+                const minY = Math.min(...newCorners.map(c => c.y));
+                const maxY = Math.max(...newCorners.map(c => c.y));
+
+                // Adjust delta if needed to keep rectangle in bounds
+                let adjustedDx = dx;
+                let adjustedDy = dy;
+
+                if (minX < 0) adjustedDx = dx - minX;
+                else if (maxX > currentImage.width) adjustedDx = dx - (maxX - currentImage.width);
+
+                if (minY < 0) adjustedDy = dy - minY;
+                else if (maxY > currentImage.height) adjustedDy = dy - (maxY - currentImage.height);
+
+                // Apply movement
+                selectedRect.corners.forEach(c => {
+                    c.x += adjustedDx;
+                    c.y += adjustedDy;
+                });
+
+                dragStartPos = { x: dragStartPos.x + adjustedDx, y: dragStartPos.y + adjustedDy };
+                redraw();
+                return;
+            }
+
+            if (currentRect && rectStartPos) {
+                // Clamp to image bounds when drawing new rectangle
+                const clampedX = Math.max(0, Math.min(currentImage.width, pos.x));
+                const clampedY = Math.max(0, Math.min(currentImage.height, pos.y));
+                currentRect.corners[0] = { x: rectStartPos.x, y: rectStartPos.y };
+                currentRect.corners[1] = { x: clampedX, y: rectStartPos.y };
+                currentRect.corners[2] = { x: clampedX, y: clampedY };
+                currentRect.corners[3] = { x: rectStartPos.x, y: clampedY };
+                redraw();
+            }
+        }
+
+        canvas.addEventListener('mouseup', () => {
+            if (currentTool === 'rect' && isDrawing) {
+                handleRectMouseUp();
+            }
+            isDrawing = false;
+            draggedCorner = null;
+            cornerDragStartPos = null;
+            isDraggingRect = false;
+            dragStartPos = null;
+            if (currentTool === 'rect' && mousePos) {
+                updateRectCursor(mousePos);
+            }
+        });
+
+        function handleRectMouseUp() {
+            if (currentRect && rectStartPos) {
+                const minSize = 20;
+                const width = Math.abs(currentRect.corners[2].x - currentRect.corners[0].x);
+                const height = Math.abs(currentRect.corners[2].y - currentRect.corners[0].y);
+                if (width > minSize && height > minSize) {
+                    rectangles.push(currentRect);
+                    selectedRect = currentRect;
+                    updateExtractButton();
+                    showEditTools();
+                }
+                currentRect = null;
+                rectStartPos = null;
+                redraw();
+            }
+        }
+
+        document.addEventListener('mouseup', () => {
+            if (draggedCorner !== null || isDraggingRect || currentRect) {
+                // Finalize new rectangle if drawing
+                if (currentRect && rectStartPos) {
+                    const minSize = 20;
+                    const width = Math.abs(currentRect.corners[2].x - currentRect.corners[0].x);
+                    const height = Math.abs(currentRect.corners[2].y - currentRect.corners[0].y);
+                    if (width > minSize && height > minSize) {
+                        rectangles.push(currentRect);
+                        selectedRect = currentRect;
+                        updateExtractButton();
+                        showEditTools();
+                    }
+                    currentRect = null;
+                    rectStartPos = null;
+                    redraw();
+                }
+                isDrawing = false;
+                draggedCorner = null;
+                cornerDragStartPos = null;
+                isDraggingRect = false;
+                dragStartPos = null;
+            }
+        });
+
+        // Track mouse movement even when outside canvas (for edge dragging and new rectangles)
+        document.addEventListener('mousemove', (e) => {
+            if (isDrawing && (draggedCorner !== null || isDraggingRect || currentRect)) {
+                const rect = canvas.getBoundingClientRect();
+                const pos = {
+                    x: (e.clientX - rect.left) / scale,
+                    y: (e.clientY - rect.top) / scale
+                };
+                handleRectMouseMove(pos, e.ctrlKey);
+            }
+        });
+
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            cancelCurrentAction();
+        });
+
+        canvas.addEventListener('dblclick', (e) => {
+            if (currentTool === 'rect') {
+                const pos = getMousePos(e);
+                if (selectedRect) {
+                    const edgeInfo = getEdgeAtPos(selectedRect, pos);
+                    if (edgeInfo.edge >= 0) {
+                        saveHistory();
+                        addPointToEdge(selectedRect, edgeInfo.edge, pos);
+                        redraw();
+                        return;
+                    }
+                }
+                for (let i = rectangles.length - 1; i >= 0; i--) {
+                    const rect = rectangles[i];
+                    const edgeInfo = getEdgeAtPos(rect, pos);
+                    if (edgeInfo.edge >= 0) {
+                        saveHistory();
+                        selectedRect = rect;
+                        addPointToEdge(rect, edgeInfo.edge, pos);
+                        redraw();
+                        return;
+                    }
+                }
+            }
+        });
+
+        function cancelCurrentAction() {
+            if (currentRect) {
+                currentRect = null;
+                rectStartPos = null;
+                redraw();
+            }
+            if (selectedRect) {
+                selectedRect = null;
+                redraw();
+            }
+        }
+
+        function deleteRectangleAt(pos) {
+            for (let i = rectangles.length - 1; i >= 0; i--) {
+                if (isInsideRect(rectangles[i], pos)) {
+                    saveHistory();
+                    rectangles.splice(i, 1);
+                    selectedRect = null;
+                    updateExtractButton();
+                    redraw();
+                    return;
+                }
+            }
+        }
+
+        // =====================================================================
+        // HISTORY (UNDO/REDO)
+        // =====================================================================
+        function saveHistory() {
+            redoHistory = [];
+            const state = {
+                rectangles: JSON.parse(JSON.stringify(rectangles))
+            };
+            history.push(state);
+            if (history.length > 30) history.shift();
+        }
+
+        function undo() {
+            if (history.length > 0) {
+                const currentState = {
+                    rectangles: JSON.parse(JSON.stringify(rectangles))
+                };
+                redoHistory.push(currentState);
+
+                const state = history.pop();
+                rectangles = state.rectangles || [];
+                selectedRect = null;
+                currentRect = null;
+                updateExtractButton();
+                redraw();
+            }
+        }
+
+        function redo() {
+            if (redoHistory.length > 0) {
+                const currentState = {
+                    rectangles: JSON.parse(JSON.stringify(rectangles))
+                };
+                history.push(currentState);
+
+                const state = redoHistory.pop();
+                rectangles = state.rectangles || [];
+                selectedRect = null;
+                currentRect = null;
+                updateExtractButton();
+                redraw();
+            }
+        }
+
+        // =====================================================================
+        // KEYBOARD SHORTCUTS
+        // =====================================================================
+        document.addEventListener('keydown', (e) => {
+            if (document.activeElement.tagName === 'INPUT') return;
+
+            if (e.key === 'Escape') {
+                cancelCurrentAction();
+            } else if (e.ctrlKey && e.key === 'z') {
+                e.preventDefault();
+                undo();
+            } else if (e.ctrlKey && e.key === 'y') {
+                e.preventDefault();
+                redo();
+            } else if (e.key === 'r' || e.key === 'R') {
+                if (!e.ctrlKey) setActiveTool('rect');
+            } else if (e.key === 'd' || e.key === 'D') {
+                setActiveTool('eraser');
+            } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedRect && currentTool === 'rect') {
+                    if (hoveredCorner !== null && selectedRect.corners.length > 3) {
+                        saveHistory();
+                        selectedRect.corners.splice(hoveredCorner, 1);
+                        hoveredCorner = null;
+                        redraw();
+                    } else {
+                        saveHistory();
+                        const idx = rectangles.indexOf(selectedRect);
+                        if (idx >= 0) rectangles.splice(idx, 1);
+                        selectedRect = null;
+                        hoveredCorner = null;
+                        updateExtractButton();
+                        redraw();
+                    }
+                }
+            } else if (e.key === 'ArrowLeft' && bulkMode) {
+                // Previous page in bulk mode
+                if (currentPageIndex > 0) loadPage(currentPageIndex - 1);
+            } else if (e.key === 'ArrowRight' && bulkMode) {
+                // Next page in bulk mode
+                if (currentPageIndex < bulkPages.length - 1) loadPage(currentPageIndex + 1);
+            }
+        });
+
+        // =====================================================================
+        // TOOL BUTTONS
+        // =====================================================================
+        function setActiveTool(tool) {
+            currentTool = tool;
+            rectBtn.classList.toggle('active', tool === 'rect');
+            eraserBtn.classList.toggle('active', tool === 'eraser');
+            canvasWrapper.classList.toggle('eraser-mode', tool === 'eraser');
+            if (tool !== 'rect') {
+                currentRect = null;
+                rectStartPos = null;
+            }
+            redraw();
+        }
+
+        rectBtn.addEventListener('click', () => setActiveTool('rect'));
+        eraserBtn.addEventListener('click', () => setActiveTool('eraser'));
+        undoBtn.addEventListener('click', undo);
+        redoBtn.addEventListener('click', redo);
+
+        clearBtn.addEventListener('click', () => {
+            saveHistory();
+            rectangles = [];
+            currentRect = null;
+            selectedRect = null;
+            updateExtractButton();
+            redraw();
+        });
+
+        // =====================================================================
+        // UI STATE MANAGEMENT
+        // =====================================================================
+        function updateExtractButton() {
+            extractBtn.disabled = rectangles.length === 0;
+        }
+
+        function showEditTools() {
+            editTools.classList.remove('hidden');
+            editDivider.classList.remove('hidden');
+        }
+
+        function hideEditTools() {
+            editTools.classList.add('hidden');
+            editDivider.classList.add('hidden');
+        }
+
+        function showExportTools() {
+            exportTools.classList.remove('hidden');
+            sidebarActions.classList.remove('hidden');
+        }
+
+        function hideExportTools() {
+            exportTools.classList.add('hidden');
+            sidebarActions.classList.add('hidden');
+        }
+
+        function showNewPageBtn() {
+            newPageBtn.style.display = 'inline-flex';
+        }
+
+        function hideNewPageBtn() {
+            newPageBtn.style.display = 'none';
+        }
+
+        function clearPanelsList() {
+            panelsList.innerHTML = '';
+            panelCountBadge.textContent = '0';
+            sidebarEmpty.style.display = 'flex';
+        }
+
+        function resetToStart() {
+            // Reset all state
+            currentImage = null;
+            currentImageData = null;
+            currentPanels = [];
+            selectedPanels.clear();
+            rectangles = [];
+            lastExtractedRectangles = null;
+            currentRect = null;
+            selectedRect = null;
+            draggedCorner = null;
+            hoveredCorner = null;
+            rectStartPos = null;
+            dragStartPos = null;
+            cornerDragStartPos = null;
+            isDraggingRect = false;
+            history = [];
+            redoHistory = [];
+            lastYoloResult = null;
+            maskCanvas = null;
+            maskCtx = null;
+
+            // Reset bulk mode state
+            bulkMode = false;
+            bulkPages = [];
+            currentPageIndex = 0;
+
+            // Reset UI
+            dropZone.classList.remove('hidden');
+            canvasWrapper.classList.remove('active');
+            autoDetectBtn.disabled = true;
+            extractBtn.disabled = true;
+            headerInfo.textContent = 'Upload an image to start';
+
+            hideEditTools();
+            hideExportTools();
+            hideNewPageBtn();
+            hideBulkMode();
+            clearPanelsList();
+            sidebarEmpty.querySelector('p').innerHTML = 'Upload an image and click<br><strong>Auto-Detect</strong> to find panels';
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Reset file input so same file can be selected again
+            fileInput.value = '';
+        }
+
+        function showDetectionToast(method, panelCount) {
+            let bg, label;
+            if (method === 'obb') {
+                bg = 'linear-gradient(135deg, #9C27B0, #7B1FA2)';
+                label = 'OBB Detection';
+            } else if (method === 'yolo') {
+                bg = 'linear-gradient(135deg, #4CAF50, #45a049)';
+                label = 'YOLO Detection';
+            } else {
+                bg = 'linear-gradient(135deg, #2196F3, #1976D2)';
+                label = 'CV Detection';
+            }
+
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                top: 60px;
+                right: 20px;
+                padding: 12px 20px;
+                border-radius: 8px;
+                color: white;
+                font-weight: bold;
+                z-index: 10000;
+                animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                background: ${bg};
+            `;
+            toast.innerHTML = `
+                <div style="font-size: 14px;">${label}</div>
+                <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">Found ${panelCount} panel${panelCount !== 1 ? 's' : ''}</div>
+            `;
+
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        function updateLoadingText(text) {
+            const loadingContent = loading.querySelector('.loading-content p');
+            if (loadingContent) {
+                loadingContent.textContent = text;
+            }
+        }
+
+        // =====================================================================
+        // BULK MODE FUNCTIONS
+        // =====================================================================
+        function showBulkMode() {
+            dropZone.classList.add('hidden');
+            canvasWrapper.classList.add('active');
+
+            // Show bulk-specific UI
+            pageNavigator.style.display = 'flex';
+            pageThumbsStrip.style.display = 'flex';
+            bulkActions.classList.remove('hidden');
+
+            // Hide single-page actions, show bulk actions
+            autoDetectBtn.style.display = 'none';
+            extractBtn.style.display = 'none';
+
+            showNewPageBtn();
+            headerInfo.textContent = `${bulkPages.length} pages loaded`;
+
+            // Build page thumbnails
+            updatePageThumbnails();
+        }
+
+        function hideBulkMode() {
+            pageNavigator.style.display = 'none';
+            pageThumbsStrip.style.display = 'none';
+            bulkActions.classList.add('hidden');
+
+            autoDetectBtn.style.display = '';
+            extractBtn.style.display = '';
+        }
+
+        function saveCurrentPageState() {
+            if (!bulkMode || bulkPages.length === 0) return;
+            bulkPages[currentPageIndex].rectangles = JSON.parse(JSON.stringify(rectangles));
+        }
+
+        function loadPage(index, skipSave = false) {
+            if (!bulkMode || bulkPages.length === 0) return;
+            if (index < 0 || index >= bulkPages.length) return;
+
+            if (!skipSave) {
+                saveCurrentPageState();  // Save current before switching
+            }
+
+            currentPageIndex = index;
+            const page = bulkPages[index];
+
+            currentImage = page.image;
+            currentImageData = page.imageData;
+            rectangles = page.rectangles ? JSON.parse(JSON.stringify(page.rectangles)) : [];
+            currentPanels = page.panels || [];
+            selectedPanels.clear();
+            currentPanels.forEach(p => selectedPanels.add(p.index));
+
+            // Reset edit state
+            selectedRect = null;
+            currentRect = null;
+            history = [];
+            redoHistory = [];
+
+            initCanvas();
+            redraw();
+            updatePageNavigator();
+            updatePageThumbnails();
+            updateExtractButton();
+
+            // Update sidebar based on extraction state
+            if (page.extracted && page.panels.length > 0) {
+                displayPanels({ panels: page.panels, panel_count: page.panels.length });
+            } else {
+                clearPanelsList();
+                if (page.detected) {
+                    sidebarEmpty.querySelector('p').innerHTML = 'Edit panels on canvas, then<br>click <strong>Extract All</strong>';
+                } else {
+                    sidebarEmpty.querySelector('p').innerHTML = 'Click <strong>Detect All</strong><br>to find panels on all pages';
+                }
+            }
+
+            // Show edit tools if there are rectangles
+            if (rectangles.length > 0) {
+                showEditTools();
+            }
+
+            headerInfo.textContent = `Page ${index + 1} of ${bulkPages.length} - ${page.fileName}`;
+        }
+
+        function updatePageNavigator() {
+            pageIndicator.textContent = `Page ${currentPageIndex + 1} / ${bulkPages.length}`;
+            prevPageBtn.disabled = currentPageIndex <= 0;
+            nextPageBtn.disabled = currentPageIndex >= bulkPages.length - 1;
+        }
+
+        function updatePageThumbnails() {
+            pageThumbsStrip.innerHTML = '';
+
+            bulkPages.forEach((page, idx) => {
+                const thumb = document.createElement('div');
+                thumb.className = 'page-thumb';
+                if (idx === currentPageIndex) thumb.classList.add('active');
+                if (page.detected) thumb.classList.add('detected');
+                if (page.extracted) thumb.classList.add('extracted');
+
+                thumb.innerHTML = `
+                    <img src="${page.imageData}" alt="Page ${idx + 1}">
+                    <span class="page-thumb-number">${idx + 1}</span>
+                    <span class="page-thumb-status"></span>
+                `;
+
+                thumb.addEventListener('click', () => {
+                    if (idx !== currentPageIndex) {
+                        loadPage(idx);
+                    }
+                });
+
+                pageThumbsStrip.appendChild(thumb);
+            });
+
+            // Scroll active thumbnail into view
+            const activeThumb = pageThumbsStrip.querySelector('.page-thumb.active');
+            if (activeThumb) {
+                activeThumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        }
+
+        function updateExtractAllButton() {
+            // Enable Extract All if at least one page has rectangles
+            const hasRectangles = bulkPages.some(p => p.rectangles && p.rectangles.length > 0);
+            extractAllBtn.disabled = !hasRectangles;
+        }
+
+        function panelsToRectangles(panelsData, useObbCorners = false) {
+            return panelsData.map(panel => {
+                if (useObbCorners && panel.corners && panel.corners.length === 4) {
+                    return { corners: panel.corners.map(c => ({ x: c.x, y: c.y })) };
+                } else if (panel.bounding_box) {
+                    const bbox = panel.bounding_box;
+                    return {
+                        corners: [
+                            { x: bbox.x, y: bbox.y },
+                            { x: bbox.x + bbox.width, y: bbox.y },
+                            { x: bbox.x + bbox.width, y: bbox.y + bbox.height },
+                            { x: bbox.x, y: bbox.y + bbox.height }
+                        ]
+                    };
+                }
+                return null;
+            }).filter(r => r !== null);
+        }
+
+        // Build mask from rectangles (used for extraction)
+        async function buildMaskFromRectangles(image, rects) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = image.width;
+            tempCanvas.height = image.height;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // Black background (non-panel areas)
+            tempCtx.fillStyle = '#000000';
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+            // White for panel areas
+            rects.forEach(rect => {
+                if (!rect.corners || rect.corners.length < 3) return;
+                tempCtx.fillStyle = '#ffffff';
+                tempCtx.beginPath();
+                tempCtx.moveTo(rect.corners[0].x, rect.corners[0].y);
+                for (let i = 1; i < rect.corners.length; i++) {
+                    tempCtx.lineTo(rect.corners[i].x, rect.corners[i].y);
+                }
+                tempCtx.closePath();
+                tempCtx.fill();
+
+                // Draw border
+                tempCtx.strokeStyle = '#000000';
+                tempCtx.lineWidth = 3;
+                tempCtx.stroke();
+            });
+
+            return new Promise(resolve => tempCanvas.toBlob(resolve, 'image/png'));
+        }
+
+        // =====================================================================
+        // BULK DETECT ALL
+        // =====================================================================
+        async function detectAllPages() {
+            if (!bulkMode || bulkPages.length === 0) return;
+
+            loading.classList.add('active');
+            const rtl = rtlToggle.checked;
+            const model = modelSelect.value;
+
+            try {
+                for (let i = 0; i < bulkPages.length; i++) {
+                    updateLoadingText(`Detecting page ${i + 1} of ${bulkPages.length}...`);
+
+                    const page = bulkPages[i];
+                    if (page.detected) continue;  // Skip already detected
+
+                    const formData = new FormData();
+                    const blob = await fetch(page.imageData).then(r => r.blob());
+                    formData.append('image', blob);
+
+                    const endpoint = model === 'obb'
+                        ? `/api/slice_obb?min_area=10000&rtl=${rtl}&obb_model=models/manga_panels_obb.pt`
+                        : `/api/slice_hybrid?min_area=10000&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true`;
+
+                    const response = await fetch(endpoint, { method: 'POST', body: formData });
+                    const data = await response.json();
+
+                    if (data.panels && data.panels.length > 0) {
+                        page.rectangles = panelsToRectangles(data.panels, model === 'obb');
+                        page.detected = true;
+                    }
+
+                    // Update thumbnail to show detected status
+                    updatePageThumbnails();
+                }
+
+                loadPage(currentPageIndex, true);  // Refresh current page, skip save to preserve detection results
+                showEditTools();
+                updateExtractAllButton();
+            } catch (error) {
+                console.error('Bulk detect error:', error);
+                alert('Error during bulk detection: ' + error.message);
+            } finally {
+                loading.classList.remove('active');
+                updateLoadingText('Processing...');
+            }
+        }
+
+        // =====================================================================
+        // BULK EXTRACT ALL
+        // =====================================================================
+        async function extractAllPages() {
+            if (!bulkMode || bulkPages.length === 0) return;
+
+            // Save current page state first
+            saveCurrentPageState();
+
+            loading.classList.add('active');
+            const rtl = rtlToggle.checked;
+
+            try {
+                for (let i = 0; i < bulkPages.length; i++) {
+                    updateLoadingText(`Extracting page ${i + 1} of ${bulkPages.length}...`);
+
+                    const page = bulkPages[i];
+                    if (!page.rectangles || page.rectangles.length === 0) continue;
+
+                    // Build mask from rectangles
+                    const maskBlob = await buildMaskFromRectangles(page.image, page.rectangles);
+
+                    const formData = new FormData();
+                    const imageBlob = await fetch(page.imageData).then(r => r.blob());
+                    formData.append('image', imageBlob);
+                    formData.append('mask', maskBlob);
+
+                    const response = await fetch(`/api/slice_with_mask?min_area=10000&rtl=${rtl}`, {
+                        method: 'POST', body: formData
+                    });
+                    const data = await response.json();
+
+                    page.panels = data.panels || [];
+                    page.extracted = true;
+
+                    // Update thumbnail
+                    updatePageThumbnails();
+                }
+
+                // Reload current page to show extracted panels
+                loadPage(currentPageIndex, true);  // Skip save since we already saved at the start
+                showExportTools();
+
+                // Show total panel count
+                const totalPanels = bulkPages.reduce((sum, p) => sum + (p.panels ? p.panels.length : 0), 0);
+                bulkProgress.textContent = `${totalPanels} panels extracted`;
+            } catch (error) {
+                console.error('Bulk extract error:', error);
+                alert('Error during bulk extraction: ' + error.message);
+            } finally {
+                loading.classList.remove('active');
+                updateLoadingText('Processing...');
+            }
+        }
+
+        // Page navigation button handlers
+        prevPageBtn.addEventListener('click', () => {
+            if (currentPageIndex > 0) loadPage(currentPageIndex - 1);
+        });
+
+        nextPageBtn.addEventListener('click', () => {
+            if (currentPageIndex < bulkPages.length - 1) loadPage(currentPageIndex + 1);
+        });
+
+        detectAllBtn.addEventListener('click', detectAllPages);
+        extractAllBtn.addEventListener('click', extractAllPages);
+
+        // =====================================================================
+        // AUTO-DETECT
+        // =====================================================================
+        autoDetectBtn.addEventListener('click', async () => {
+            if (!currentImage) return;
+
+            loading.classList.add('active');
+
+            try {
+                const formData = new FormData();
+                const blob = await fetch(currentImageData).then(r => r.blob());
+                formData.append('image', blob);
+
+                const minArea = 10000;
+                const rtl = rtlToggle.checked;
+                const selectedModel = modelSelect.value;
+
+                let response;
+                if (selectedModel === 'obb') {
+                    response = await fetch(`/api/slice_obb?min_area=${minArea}&rtl=${rtl}&obb_model=models/manga_panels_obb.pt`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else {
+                    response = await fetch(`/api/slice_hybrid?min_area=${minArea}&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                }
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                console.log('Detection method:', data.detection_method);
+                console.log('Panel count:', data.panel_count);
+
+                saveHistory();
+                lastYoloResult = data;
+
+                // Load panels as editable rectangles
+                if (data.panels && data.panels.length > 0) {
+                    loadPanelsAsRectangles(data.panels, selectedModel === 'obb');
+                }
+
+                showDetectionToast(data.detection_method, data.panel_count);
+                showEditTools();
+
+            } catch (error) {
+                console.error('Auto-detect error:', error);
+                alert('Auto-detect error: ' + error.message);
+            } finally {
+                loading.classList.remove('active');
+            }
+        });
+
+        function loadPanelsAsRectangles(panelsData, useObbCorners = false) {
+            rectangles = [];
+            selectedRect = null;
+
+            panelsData.forEach((panel, i) => {
+                let rect = null;
+
+                if (useObbCorners && panel.corners && panel.corners.length === 4) {
+                    rect = {
+                        corners: panel.corners.map(c => ({ x: c.x, y: c.y }))
+                    };
+                } else if (panel.bounding_box) {
+                    const bbox = panel.bounding_box;
+                    rect = {
+                        corners: [
+                            { x: bbox.x, y: bbox.y },
+                            { x: bbox.x + bbox.width, y: bbox.y },
+                            { x: bbox.x + bbox.width, y: bbox.y + bbox.height },
+                            { x: bbox.x, y: bbox.y + bbox.height }
+                        ]
+                    };
+                }
+
+                if (rect) rectangles.push(rect);
+            });
+
+            setActiveTool('rect');
+            updateExtractButton();
+            // Update sidebar empty text
+            sidebarEmpty.querySelector('p').innerHTML = 'Edit panels on canvas, then<br>click <strong>Extract Panels</strong>';
+            redraw();
+        }
+
+        // =====================================================================
+        // EXTRACT PANELS
+        // =====================================================================
+        extractBtn.addEventListener('click', async () => {
+            if (!currentImage || rectangles.length === 0) return;
+
+            loading.classList.add('active');
+
+            try {
+                lastExtractedRectangles = JSON.parse(JSON.stringify(rectangles));
+
+                // Build mask from rectangles
+                maskCtx.fillStyle = '#000000';
+                maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+
+                rectangles.forEach((rect) => {
+                    if (!rect.corners || rect.corners.length < 3) return;
+
+                    maskCtx.fillStyle = '#ffffff';
+                    maskCtx.beginPath();
+                    maskCtx.moveTo(rect.corners[0].x, rect.corners[0].y);
+                    for (let i = 1; i < rect.corners.length; i++) {
+                        maskCtx.lineTo(rect.corners[i].x, rect.corners[i].y);
+                    }
+                    maskCtx.closePath();
+                    maskCtx.fill();
+
+                    // Draw border
+                    maskCtx.strokeStyle = '#000000';
+                    maskCtx.lineWidth = 3;
+                    maskCtx.stroke();
+                });
+
+                const maskBlob = await new Promise(resolve => maskCanvas.toBlob(resolve, 'image/png'));
+                const formData = new FormData();
+                const imageBlob = await fetch(currentImageData).then(r => r.blob());
+                formData.append('image', imageBlob);
+                formData.append('mask', maskBlob);
+
+                const response = await fetch(`/api/slice_with_mask?min_area=10000&rtl=${rtlToggle.checked}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                displayPanels(data);
+
+            } catch (error) {
+                alert('Extract error: ' + error.message);
+            } finally {
+                loading.classList.remove('active');
+            }
+        });
+
+        // =====================================================================
+        // DISPLAY PANELS IN SIDEBAR
+        // =====================================================================
+        let draggedPanel = null;
+
+        function displayPanels(data) {
+            currentPanels = data.panels;
+            panelCountBadge.textContent = data.panel_count;
+
+            // Select all by default
+            selectedPanels.clear();
+            data.panels.forEach(panel => selectedPanels.add(panel.index));
+
+            // Clear and populate sidebar
+            panelsList.innerHTML = '';
+            sidebarEmpty.style.display = 'none';
+
+            // Apply current view mode
+            if (currentViewMode === 'grid') {
+                panelsList.classList.add('grid-view');
+            } else {
+                panelsList.classList.remove('grid-view');
+            }
+
+            // Add reorder hint if multiple panels
+            if (data.panels.length > 1) {
+                const hint = document.createElement('div');
+                hint.className = 'reorder-hint';
+                hint.textContent = 'Drag to reorder panels';
+                panelsList.appendChild(hint);
+            }
+
+            data.panels.forEach((panel, displayIndex) => {
+                const thumb = document.createElement('div');
+                thumb.className = 'panel-thumb selected';
+                thumb.dataset.index = panel.index;
+                thumb.dataset.displayIndex = displayIndex;
+                thumb.draggable = true;
+
+                thumb.innerHTML = `
+                    <span class="drag-handle" title="Drag to reorder">&#8942;</span>
+                    <span class="panel-thumb-number">${displayIndex + 1}</span>
+                    <input type="checkbox" class="panel-thumb-checkbox" data-index="${panel.index}" checked>
+                    <img src="data:image/png;base64,${panel.image}" alt="Panel ${displayIndex + 1}">
+                `;
+
+                const checkbox = thumb.querySelector('.panel-thumb-checkbox');
+                checkbox.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    const idx = parseInt(e.target.dataset.index);
+                    if (e.target.checked) {
+                        selectedPanels.add(idx);
+                        thumb.classList.add('selected');
+                        thumb.classList.remove('unselected');
+                    } else {
+                        selectedPanels.delete(idx);
+                        thumb.classList.remove('selected');
+                        thumb.classList.add('unselected');
+                    }
+                    updateSelectionCount();
+                });
+
+                thumb.addEventListener('click', (e) => {
+                    if (e.target.type !== 'checkbox' && !e.target.classList.contains('drag-handle')) {
+                        highlightPanelOnCanvas(panel.index);
+                    }
+                });
+
+                // Drag and drop events
+                thumb.addEventListener('dragstart', (e) => {
+                    draggedPanel = thumb;
+                    thumb.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', displayIndex);
+                });
+
+                thumb.addEventListener('dragend', () => {
+                    thumb.classList.remove('dragging');
+                    draggedPanel = null;
+                    document.querySelectorAll('.panel-thumb.drag-over').forEach(el => {
+                        el.classList.remove('drag-over');
+                    });
+                });
+
+                thumb.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (draggedPanel && draggedPanel !== thumb) {
+                        thumb.classList.add('drag-over');
+                    }
+                });
+
+                thumb.addEventListener('dragleave', () => {
+                    thumb.classList.remove('drag-over');
+                });
+
+                thumb.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    thumb.classList.remove('drag-over');
+
+                    if (!draggedPanel || draggedPanel === thumb) return;
+
+                    const fromIndex = parseInt(draggedPanel.dataset.displayIndex);
+                    const toIndex = parseInt(thumb.dataset.displayIndex);
+
+                    if (fromIndex !== toIndex) {
+                        reorderPanels(fromIndex, toIndex);
+                    }
+                });
+
+                panelsList.appendChild(thumb);
+            });
+
+            updateSelectionCount();
+            showExportTools();
+        }
+
+        function reorderPanels(fromIndex, toIndex) {
+            // Reorder currentPanels array
+            const [movedPanel] = currentPanels.splice(fromIndex, 1);
+            currentPanels.splice(toIndex, 0, movedPanel);
+
+            // Also reorder rectangles to match (so canvas numbers update)
+            if (rectangles.length === currentPanels.length + (toIndex > fromIndex ? 1 : 0) ||
+                rectangles.length >= Math.max(fromIndex, toIndex) + 1) {
+                // Only reorder if rectangles array exists and has matching length
+                if (rectangles.length > 0) {
+                    const [movedRect] = rectangles.splice(fromIndex, 1);
+                    rectangles.splice(toIndex, 0, movedRect);
+                }
+            }
+
+            // Update indices to match new order
+            currentPanels.forEach((panel, idx) => {
+                panel.index = idx;
+            });
+
+            // Update selectedPanels set with new indices
+            const wasSelected = selectedPanels.has(fromIndex);
+            selectedPanels.clear();
+            currentPanels.forEach((panel, idx) => {
+                // Re-select all (simplest approach)
+                selectedPanels.add(idx);
+            });
+
+            // If in bulk mode, update the page's panels and rectangles arrays too
+            if (bulkMode && bulkPages[currentPageIndex]) {
+                bulkPages[currentPageIndex].panels = currentPanels;
+                bulkPages[currentPageIndex].rectangles = JSON.parse(JSON.stringify(rectangles));
+            }
+
+            // Re-render the panel list and redraw canvas with updated numbers
+            displayPanels({ panels: currentPanels, panel_count: currentPanels.length });
+            redraw();
+        }
+
+        function highlightPanelOnCanvas(index) {
+            if (index < rectangles.length) {
+                selectedRect = rectangles[index];
+                redraw();
+            }
+        }
+
+        function updateSelectionCount() {
+            const total = currentPanels.length;
+            const selected = selectedPanels.size;
+            panelCountBadge.textContent = `${selected}/${total}`;
+            downloadBtn.disabled = selected === 0;
+            downloadPsdBtn.disabled = selected === 0;
+        }
+
+        selectAllBtn.addEventListener('click', () => {
+            selectedPanels.clear();
+            currentPanels.forEach(panel => selectedPanels.add(panel.index));
+            document.querySelectorAll('.panel-thumb-checkbox').forEach(cb => {
+                cb.checked = true;
+                cb.closest('.panel-thumb').classList.add('selected');
+                cb.closest('.panel-thumb').classList.remove('unselected');
+            });
+            updateSelectionCount();
+        });
+
+        deselectAllBtn.addEventListener('click', () => {
+            selectedPanels.clear();
+            document.querySelectorAll('.panel-thumb-checkbox').forEach(cb => {
+                cb.checked = false;
+                cb.closest('.panel-thumb').classList.remove('selected');
+                cb.closest('.panel-thumb').classList.add('unselected');
+            });
+            updateSelectionCount();
+        });
+
+        // View toggle buttons
+        listViewBtn.addEventListener('click', () => {
+            if (currentViewMode === 'list') return;
+            currentViewMode = 'list';
+            listViewBtn.classList.add('active');
+            gridViewBtn.classList.remove('active');
+            panelsList.classList.remove('grid-view');
+        });
+
+        gridViewBtn.addEventListener('click', () => {
+            if (currentViewMode === 'grid') return;
+            currentViewMode = 'grid';
+            gridViewBtn.classList.add('active');
+            listViewBtn.classList.remove('active');
+            panelsList.classList.add('grid-view');
+        });
+
+        // New Page button - reset everything
+        newPageBtn.addEventListener('click', () => {
+            resetToStart();
+        });
+
+        // =====================================================================
+        // DOWNLOAD
+        // =====================================================================
+        downloadBtn.addEventListener('click', async () => {
+            try {
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = 'Preparing...';
+
+                let response;
+                let downloadName;
+
+                if (bulkMode && bulkPages.length > 0) {
+                    // Bulk mode - download all pages
+                    saveCurrentPageState();  // Save current page edits
+
+                    const pagePanels = bulkPages.map(p => p.panels || []);
+                    const totalPanels = pagePanels.reduce((sum, p) => sum + p.length, 0);
+
+                    if (totalPanels === 0) {
+                        alert('No panels to download. Run "Extract All" first.');
+                        return;
+                    }
+
+                    response = await fetch('/api/download_bulk', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ pages: pagePanels })
+                    });
+                    downloadName = 'manga_panels_bulk.zip';
+
+                    // Auto-save training data for all pages
+                    for (let i = 0; i < bulkPages.length; i++) {
+                        const page = bulkPages[i];
+                        if (page.rectangles && page.rectangles.length > 0) {
+                            try {
+                                const boxes = page.rectangles.map((rect, idx) => {
+                                    const corners = rect.corners;
+                                    const xs = corners.map(c => c.x);
+                                    const ys = corners.map(c => c.y);
+                                    return {
+                                        x: Math.min(...xs),
+                                        y: Math.min(...ys),
+                                        width: Math.max(...xs) - Math.min(...xs),
+                                        height: Math.max(...ys) - Math.min(...ys),
+                                        index: idx,
+                                        corners: corners.map(c => ({ x: c.x, y: c.y }))
+                                    };
+                                });
+
+                                const formData = new FormData();
+                                const imageBlob = await fetch(page.imageData).then(r => r.blob());
+                                formData.append('image', imageBlob);
+                                formData.append('boxes', JSON.stringify(boxes));
+
+                                await fetch('/api/save_training_sample', {
+                                    method: 'POST',
+                                    body: formData
+                                });
+                            } catch (e) {
+                                console.warn(`Auto-save failed for page ${i + 1}:`, e);
+                            }
+                        }
+                    }
+                } else {
+                    // Single page mode
+                    if (selectedPanels.size === 0) {
+                        alert('No panels selected.');
+                        return;
+                    }
+
+                    const panelsToDownload = currentPanels.filter(p => selectedPanels.has(p.index));
+
+                    // Build request body with training data included
+                    const requestBody = { panels: panelsToDownload };
+
+                    // Include original image and boxes for silent training data collection
+                    if (currentImageData && lastExtractedRectangles && lastExtractedRectangles.length > 0) {
+                        const boxes = lastExtractedRectangles.map((rect, idx) => {
+                            const corners = rect.corners;
+                            const xs = corners.map(c => c.x);
+                            const ys = corners.map(c => c.y);
+                            return {
+                                x: Math.min(...xs),
+                                y: Math.min(...ys),
+                                width: Math.max(...xs) - Math.min(...xs),
+                                height: Math.max(...ys) - Math.min(...ys),
+                                index: idx,
+                                corners: corners.map(c => ({ x: c.x, y: c.y }))
+                            };
+                        });
+                        requestBody.original_image = currentImageData;
+                        requestBody.boxes = boxes;
+                    }
+
+                    response = await fetch('/api/download', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    });
+                    downloadName = 'manga_panels.zip';
+                }
+
+                if (!response.ok) throw new Error('Download failed');
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = downloadName;
+                a.click();
+                window.URL.revokeObjectURL(url);
+
+                downloadBtn.textContent = 'Saved!';
+                setTimeout(() => { downloadBtn.textContent = 'Download ZIP'; }, 1500);
+
+            } catch (error) {
+                alert('Download error: ' + error.message);
+            } finally {
+                downloadBtn.disabled = false;
+                if (downloadBtn.textContent === 'Preparing...') {
+                    downloadBtn.textContent = 'Download ZIP';
+                }
+            }
+        });
+
+        downloadPsdBtn.addEventListener('click', async () => {
+            if (selectedPanels.size === 0) return;
+
+            try {
+                downloadPsdBtn.disabled = true;
+                downloadPsdBtn.textContent = 'Preparing...';
+
+                const panelsToDownload = currentPanels.filter(p => selectedPanels.has(p.index));
+
+                const response = await fetch('/api/export/psd', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ panels: panelsToDownload, layout: 'stacked' })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'PSD export failed');
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'manga_panels.psd';
+                a.click();
+                window.URL.revokeObjectURL(url);
+
+            } catch (error) {
+                alert('PSD Export error: ' + error.message);
+            } finally {
+                downloadPsdBtn.disabled = false;
+                downloadPsdBtn.textContent = 'Download PSD';
+            }
+        });
+
+        // =====================================================================
+        // INIT
+        // =====================================================================
+        fetch('/api/capabilities')
+            .then(r => r.json())
+            .then(caps => {
+                console.log('Server capabilities:', caps);
+                if (!caps.psd_export) {
+                    downloadPsdBtn.style.display = 'none';
+                }
+            })
+            .catch(err => console.log('Could not fetch capabilities:', err));
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            if (currentImage) {
+                initCanvas();
+                redraw();
+            }
+        });
+    </script>
+</body>
+</html>

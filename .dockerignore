@@ -1,0 +1,58 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+venv
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+htmlcov
+.pytest_cache
+.mypy_cache
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Temp files
+uploads/*
+output/*
+temp_edit/*
+!uploads/.gitkeep
+!output/.gitkeep
+
+# Training data (keep structure, not content)
+training_data/obb/images/*
+training_data/obb/labels/*
+training_data/obb/train/*
+training_data/obb/val/*
+training_data/obb/runs/*
+!training_data/obb/images/.gitkeep
+!training_data/obb/labels/.gitkeep
+
+# Vetting sessions
+vetting_sessions/*
+!vetting_sessions/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local development
+run.bat
+*.local

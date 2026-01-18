@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(timeout:*)",
+      "Bash(wc:*)",
+      "Bash(dir /s /b \"C:\\\\Users\\\\mahmo\\\\Desktop\\\\Manga Panel Slicer\\\\bootstrap_images\")",
+      "Bash(dir:*)",
+      "Bash(copy:*)",
+      "Bash(powershell:*)",
+      "Bash(du:*)",
+      "Bash(ls:*)",
+      "Bash(cd:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+names:
+  0: panel
+path: C:\Users\mahmo\Desktop\Manga Panel Slicer\training_data\obb
+train: train/images
+val: val/images
