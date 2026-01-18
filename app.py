@@ -98,8 +98,11 @@ def add_security_headers(response):
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 OUTPUT_FOLDER = 'output'
+TRAINING_DATA_FOLDER = 'training_data'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+os.makedirs(os.path.join(TRAINING_DATA_FOLDER, 'obb', 'images'), exist_ok=True)
+os.makedirs(os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels'), exist_ok=True)
 
 
 def image_to_base64(image: np.ndarray) -> str:
