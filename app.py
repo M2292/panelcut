@@ -54,6 +54,13 @@ try:
 except ImportError:
     LIMITER_AVAILABLE = False
 
+# Try to import Firestore for persistent stats
+try:
+    from google.cloud import firestore
+    FIRESTORE_AVAILABLE = True
+except ImportError:
+    FIRESTORE_AVAILABLE = False
+
 app = Flask(__name__, static_folder='static')
 
 # =============================================================================
@@ -107,7 +114,17 @@ os.makedirs(os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels'), exist_ok=True)
 
 
 def load_stats():
-    """Load download statistics from file."""
+    """Load download statistics from Firestore or local file."""
+    if FIRESTORE_AVAILABLE:
+        try:
+            db = firestore.Client()
+            doc = db.collection('stats').document('downloads').get()
+            if doc.exists:
+                return doc.to_dict()
+        except Exception as e:
+            print(f"[Stats] Firestore read failed: {e}")
+
+    # Fallback to local file
     if os.path.exists(STATS_FILE):
         try:
             with open(STATS_FILE, 'r') as f:
@@ -118,7 +135,16 @@ def load_stats():
 
 
 def save_stats(stats):
-    """Save download statistics to file."""
+    """Save download statistics to Firestore or local file."""
+    if FIRESTORE_AVAILABLE:
+        try:
+            db = firestore.Client()
+            db.collection('stats').document('downloads').set(stats)
+            return
+        except Exception as e:
+            print(f"[Stats] Firestore write failed: {e}")
+
+    # Fallback to local file
     try:
         with open(STATS_FILE, 'w') as f:
             json.dump(stats, f)
