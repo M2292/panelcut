@@ -61,6 +61,16 @@ try:
 except ImportError:
     FIRESTORE_AVAILABLE = False
 
+# Try to import Cloud Storage for training data
+try:
+    from google.cloud import storage
+    GCS_AVAILABLE = True
+except ImportError:
+    GCS_AVAILABLE = False
+
+# Cloud Storage bucket name for training data
+TRAINING_BUCKET = os.environ.get('TRAINING_BUCKET', 'panelcut-training-data')
+
 app = Flask(__name__, static_folder='static')
 
 # =============================================================================
@@ -640,6 +650,7 @@ def _save_training_data_silent(original_image_base64: str, boxes: list):
     """
     Silently save training data for OBB model training.
     Called when users download panels to collect training samples.
+    Saves to Cloud Storage if available, otherwise local filesystem.
     """
     # Decode original image
     if ',' in original_image_base64:
@@ -659,15 +670,6 @@ def _save_training_data_silent(original_image_base64: str, boxes: list):
     sample_id = str(uuid.uuid4())[:8]
     image_filename = f"manga_{timestamp}_{sample_id}.png"
     label_filename = f"manga_{timestamp}_{sample_id}.txt"
-
-    # Create OBB directories
-    obb_images_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'images')
-    obb_labels_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels')
-    os.makedirs(obb_images_dir, exist_ok=True)
-    os.makedirs(obb_labels_dir, exist_ok=True)
-
-    # Save image
-    cv2.imwrite(os.path.join(obb_images_dir, image_filename), image)
 
     # Convert boxes to OBB format
     obb_labels = []
@@ -699,12 +701,42 @@ def _save_training_data_silent(original_image_base64: str, boxes: list):
             obb_parts.append(f"{ny:.6f}")
         obb_labels.append(' '.join(obb_parts))
 
-    # Save labels
-    if obb_labels:
-        with open(os.path.join(obb_labels_dir, label_filename), 'w') as f:
-            f.write('\n'.join(obb_labels))
+    if not obb_labels:
+        return
 
-        print(f"[Training] Silently saved: {image_filename} with {len(boxes)} panels")
+    label_content = '\n'.join(obb_labels)
+
+    # Try Cloud Storage first
+    if GCS_AVAILABLE:
+        try:
+            client = storage.Client()
+            bucket = client.bucket(TRAINING_BUCKET)
+
+            # Upload image
+            _, img_encoded = cv2.imencode('.png', image)
+            img_blob = bucket.blob(f"obb/images/{image_filename}")
+            img_blob.upload_from_string(img_encoded.tobytes(), content_type='image/png')
+
+            # Upload label
+            label_blob = bucket.blob(f"obb/labels/{label_filename}")
+            label_blob.upload_from_string(label_content, content_type='text/plain')
+
+            print(f"[Training] Saved to GCS: {image_filename} with {len(boxes)} panels")
+            return
+        except Exception as e:
+            print(f"[Training] GCS upload failed: {e}")
+
+    # Fallback to local filesystem
+    obb_images_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'images')
+    obb_labels_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels')
+    os.makedirs(obb_images_dir, exist_ok=True)
+    os.makedirs(obb_labels_dir, exist_ok=True)
+
+    cv2.imwrite(os.path.join(obb_images_dir, image_filename), image)
+    with open(os.path.join(obb_labels_dir, label_filename), 'w') as f:
+        f.write(label_content)
+
+    print(f"[Training] Saved locally: {image_filename} with {len(boxes)} panels")
 
 
 @app.route('/api/health', methods=['GET'])
