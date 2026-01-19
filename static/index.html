@@ -130,8 +130,12 @@
             padding: 20px;
             background: var(--bg-primary);
             position: relative;
-            overflow: hidden;
+            overflow: hidden;  /* Hide overflow for transform-based panning */
             min-width: 0;
+        }
+
+        .canvas-area.panning {
+            cursor: grabbing !important;
         }
 
         /* Drop Zone (shown when no image) */
@@ -177,9 +181,9 @@
             display: none;
             background: #000;
             border-radius: 8px;
-            overflow: hidden;
-            max-width: 100%;
-            max-height: 100%;
+            overflow: visible;
+            transform-origin: center center;
+            will-change: transform;
         }
 
         .canvas-wrapper.active {
@@ -188,13 +192,32 @@
 
         #editorCanvas {
             display: block;
-            max-width: 100%;
-            max-height: 100%;
             cursor: crosshair;
         }
 
         .canvas-wrapper.eraser-mode #editorCanvas {
             cursor: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="%23ff6b6b" fill-opacity="0.3" stroke="%23ff0000" stroke-width="2"/><line x1="7" y1="7" x2="17" y2="17" stroke="%23ff0000" stroke-width="2"/><line x1="17" y1="7" x2="7" y2="17" stroke="%23ff0000" stroke-width="2"/></svg>') 12 12, auto;
+        }
+
+        /* Zoom indicator */
+        .zoom-indicator {
+            position: fixed;
+            top: 80px;
+            right: 320px;  /* Sidebar width (280px) + padding */
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 1000;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            backdrop-filter: blur(4px);
+        }
+
+        .zoom-indicator.hidden {
+            opacity: 0;
         }
 
         /* Panels Sidebar (Right) */
@@ -844,6 +867,9 @@
             <div class="canvas-wrapper" id="canvasWrapper">
                 <canvas id="editorCanvas"></canvas>
             </div>
+
+            <!-- Zoom indicator (fixed position overlay) -->
+            <div class="zoom-indicator hidden" id="zoomIndicator">100%</div>
         </div>
 
         <!-- Panels Sidebar -->
@@ -901,7 +927,8 @@
 
         <!-- Edit Tools (shown after detection) -->
         <div class="toolbar-group hidden" id="editTools">
-            <button class="btn btn-secondary active" id="rectBtn" title="Draw rectangle (R)">Rect</button>
+            <button class="btn btn-secondary active" id="panBtn" title="Pan/Move view (H)">✋ Hand</button>
+            <button class="btn btn-secondary" id="rectBtn" title="Draw rectangle (R)">Rect</button>
             <button class="btn btn-secondary" id="eraserBtn" title="Delete panel (D)">Delete</button>
             <button class="btn btn-secondary" id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
             <button class="btn btn-secondary" id="redoBtn" title="Redo (Ctrl+Y)">Redo</button>
@@ -963,9 +990,18 @@
         let cornerDragStartPos = null;  // For Ctrl+drag straight line constraint
         let history = [];
         let redoHistory = [];
-        let currentTool = 'rect';
+        let currentTool = 'pan';  // Default to pan tool
         let isDrawing = false;
         let scale = 1;
+        let zoomLevel = 1;  // User-controlled zoom
+        let panX = 0;  // Pan offset X
+        let panY = 0;  // Pan offset Y
+        let isPanning = false;
+        let panStartX = 0;
+        let panStartY = 0;
+        let scrollStartX = 0;
+        let scrollStartY = 0;
+        let spaceKeyDown = false;
         let mousePos = null;
         let lastYoloResult = null;
 
@@ -991,6 +1027,7 @@
         const canvas = document.getElementById('editorCanvas');
         const ctx = canvas.getContext('2d');
         const canvasArea = document.getElementById('canvasArea');
+        const zoomIndicator = document.getElementById('zoomIndicator');
 
         // Sidebar
         const sidebarContent = document.getElementById('sidebarContent');
@@ -1010,6 +1047,7 @@
         const editTools = document.getElementById('editTools');
         const editDivider = document.getElementById('editDivider');
         const exportTools = document.getElementById('exportTools');
+        const panBtn = document.getElementById('panBtn');
         const rectBtn = document.getElementById('rectBtn');
         const eraserBtn = document.getElementById('eraserBtn');
         const undoBtn = document.getElementById('undoBtn');
@@ -1212,10 +1250,16 @@
             const maxWidth = container.clientWidth - 40;
             const maxHeight = container.clientHeight - 40;
 
+            // Base scale to fit image in container
             scale = Math.min(maxWidth / currentImage.width, maxHeight / currentImage.height, 1);
 
-            canvas.width = currentImage.width * scale;
-            canvas.height = currentImage.height * scale;
+            // Reset zoom and pan when loading new image
+            zoomLevel = 1;
+            panX = 0;
+            panY = 0;
+
+            updateCanvasSize();
+            updateCanvasTransform();
 
             // Initialize mask canvas at full resolution
             maskCanvas = document.createElement('canvas');
@@ -1224,6 +1268,30 @@
             maskCtx = maskCanvas.getContext('2d');
             maskCtx.fillStyle = '#ffffff';
             maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+        }
+
+        function updateCanvasSize() {
+            if (!currentImage) return;
+            const totalScale = scale * zoomLevel;
+            canvas.width = currentImage.width * totalScale;
+            canvas.height = currentImage.height * totalScale;
+        }
+
+        function updateCanvasTransform() {
+            // Apply pan offset using CSS transform for smooth, unlimited panning
+            canvasWrapper.style.transform = `translate(${panX}px, ${panY}px)`;
+        }
+
+        function updateZoomIndicator() {
+            const zoomPercent = Math.round(zoomLevel * 100);
+            zoomIndicator.textContent = `${zoomPercent}%`;
+            zoomIndicator.classList.remove('hidden');
+
+            // Hide after 2 seconds
+            clearTimeout(window.zoomIndicatorTimeout);
+            window.zoomIndicatorTimeout = setTimeout(() => {
+                zoomIndicator.classList.add('hidden');
+            }, 2000);
         }
 
         // =====================================================================
@@ -1257,16 +1325,17 @@
             const corners = rect.corners;
             const baseColor = index >= 0 ? rectColors[index % rectColors.length] : '#00FF00';
             const strokeColor = isSelected ? '#FFFFFF' : baseColor;
+            const totalScale = scale * zoomLevel;
 
             ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = 3 * scale;
+            ctx.lineWidth = 3 * totalScale;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
 
             ctx.beginPath();
-            ctx.moveTo(corners[0].x * scale, corners[0].y * scale);
+            ctx.moveTo(corners[0].x * totalScale, corners[0].y * totalScale);
             for (let i = 1; i < corners.length; i++) {
-                ctx.lineTo(corners[i].x * scale, corners[i].y * scale);
+                ctx.lineTo(corners[i].x * totalScale, corners[i].y * totalScale);
             }
             ctx.closePath();
             ctx.stroke();
@@ -1289,7 +1358,7 @@
                     }
                     ctx.lineWidth = 2;
                     ctx.beginPath();
-                    ctx.arc(corner.x * scale, corner.y * scale, CORNER_SIZE, 0, Math.PI * 2);
+                    ctx.arc(corner.x * totalScale, corner.y * totalScale, CORNER_SIZE, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.stroke();
                 });
@@ -1301,22 +1370,22 @@
                 const centerX = corners.reduce((sum, c) => sum + c.x, 0) / corners.length;
                 const centerY = corners.reduce((sum, c) => sum + c.y, 0) / corners.length;
 
-                ctx.font = `bold ${Math.max(16, 24 * scale)}px Arial`;
+                ctx.font = `bold ${Math.max(16, 24 * totalScale)}px Arial`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
                 const metrics = ctx.measureText(label);
-                const padding = 6 * scale;
+                const padding = 6 * totalScale;
                 ctx.fillStyle = baseColor;
                 ctx.fillRect(
-                    centerX * scale - metrics.width / 2 - padding,
-                    centerY * scale - 12 * scale - padding,
+                    centerX * totalScale - metrics.width / 2 - padding,
+                    centerY * totalScale - 12 * totalScale - padding,
                     metrics.width + padding * 2,
-                    24 * scale + padding * 2
+                    24 * totalScale + padding * 2
                 );
 
                 ctx.fillStyle = '#FFFFFF';
-                ctx.fillText(label, centerX * scale, centerY * scale);
+                ctx.fillText(label, centerX * totalScale, centerY * totalScale);
             }
         }
 
@@ -1325,15 +1394,17 @@
         // =====================================================================
         function getMousePos(e) {
             const rect = canvas.getBoundingClientRect();
+            const totalScale = scale * zoomLevel;
             return {
-                x: (e.clientX - rect.left) / scale,
-                y: (e.clientY - rect.top) / scale
+                x: (e.clientX - rect.left) / totalScale,
+                y: (e.clientY - rect.top) / totalScale
             };
         }
 
         function getCornerAtPos(rect, pos) {
             if (!rect || !rect.corners) return -1;
-            const threshold = 20 / scale;
+            const totalScale = scale * zoomLevel;
+            const threshold = 20 / totalScale;
             let closestDist = Infinity;
             let closestIdx = -1;
             for (let i = 0; i < rect.corners.length; i++) {
@@ -1371,7 +1442,8 @@
             const n = corners.length;
             let closestEdge = -1;
             let closestDist = Infinity;
-            const threshold = 15 / scale;
+            const totalScale = scale * zoomLevel;
+            const threshold = 15 / totalScale;
 
             for (let i = 0; i < n; i++) {
                 const j = (i + 1) % n;
@@ -1403,16 +1475,169 @@
             rect.corners.splice(edgeIdx + 1, 0, { x: pos.x, y: pos.y });
         }
 
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.button === 2) return;
-            const pos = getMousePos(e);
+        // Zoom with mouse wheel
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
 
-            if (currentTool === 'eraser') {
-                deleteRectangleAt(pos);
-            } else if (currentTool === 'rect') {
-                handleRectMouseDown(pos);
+            const delta = e.deltaY;
+            const zoomSpeed = 0.1;
+            const oldZoom = zoomLevel;
+
+            if (delta < 0) {
+                // Zoom in
+                zoomLevel = Math.min(zoomLevel + zoomSpeed, 5);  // Max 5x zoom
+            } else {
+                // Zoom out
+                zoomLevel = Math.max(zoomLevel - zoomSpeed, 0.5);  // Min 0.5x zoom
+            }
+
+            if (oldZoom !== zoomLevel) {
+                // When zooming back to 100%, reset pan offset
+                if (zoomLevel === 1) {
+                    panX = 0;
+                    panY = 0;
+                }
+
+                updateCanvasSize();
+                updateZoomIndicator();
+                updateCanvasTransform();
+                redraw();
+            }
+        }, { passive: false });
+
+        // Keyboard shortcuts for zoom
+        document.addEventListener('keydown', (e) => {
+            // Only handle zoom keys when canvas is visible
+            if (!canvasWrapper.classList.contains('active')) return;
+
+            // Don't interfere with input fields
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            const zoomSpeed = 0.1;
+            let newZoom = zoomLevel;
+
+            if (e.key === '+' || e.key === '=') {
+                // Zoom in
+                e.preventDefault();
+                newZoom = Math.min(zoomLevel + zoomSpeed, 5);
+            } else if (e.key === '-' || e.key === '_') {
+                // Zoom out
+                e.preventDefault();
+                newZoom = Math.max(zoomLevel - zoomSpeed, 0.5);
+            } else if (e.key === '0') {
+                // Reset zoom
+                e.preventDefault();
+                newZoom = 1;
+            }
+
+            if (newZoom !== zoomLevel) {
+                zoomLevel = newZoom;
+
+                // When zooming back to 100%, reset pan offset
+                if (zoomLevel === 1) {
+                    panX = 0;
+                    panY = 0;
+                }
+
+                updateCanvasSize();
+                updateZoomIndicator();
+                updateCanvasTransform();
+                redraw();
             }
         });
+
+        // Pan with Space key
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !spaceKeyDown && canvasWrapper.classList.contains('active')) {
+                // Don't interfere with input fields
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                e.preventDefault();
+                spaceKeyDown = true;
+                canvas.style.cursor = 'grab';
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                spaceKeyDown = false;
+                if (!isPanning) {
+                    canvas.style.cursor = currentTool === 'rect' ? 'crosshair' : 'default';
+                }
+            }
+        });
+
+        // Pan on canvas-area (works everywhere, not just on canvas)
+        canvasArea.addEventListener('mousedown', (e) => {
+            if (e.button === 2) return;  // Right click
+
+            // Check if clicking outside the canvas (in the canvas-area padding)
+            const isOutsideCanvas = e.target !== canvas && !canvas.contains(e.target);
+
+            // Auto-pan when clicking outside the canvas, or when using pan tool/space/middle click
+            if (isOutsideCanvas || currentTool === 'pan' || (spaceKeyDown && e.button === 0) || e.button === 1) {
+                e.preventDefault();
+                isPanning = true;
+                panStartX = e.clientX;
+                panStartY = e.clientY;
+                scrollStartX = panX;  // Store current pan offset
+                scrollStartY = panY;
+                canvasArea.classList.add('panning');
+                canvas.style.cursor = 'grabbing';
+                return;
+            }
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 2) return;  // Right click
+            if (isPanning) return;  // Already panning
+
+            const pos = getMousePos(e);
+
+            // Handle eraser tool explicitly
+            if (currentTool === 'eraser' && !spaceKeyDown) {
+                deleteRectangleAt(pos);
+                return;
+            }
+
+            // Smart behavior: check if clicking on a panel
+            const clickedRect = findRectangleAtPos(pos);
+
+            if (clickedRect) {
+                // Clicking on a panel - select it and enable editing
+                if (currentTool !== 'rect') {
+                    setActiveTool('rect');
+                }
+                selectedRect = clickedRect;
+                handleRectMouseDown(pos);
+                redraw();
+            } else {
+                // Clicking outside panels - start panning (unless already in rect tool drawing mode)
+                if (currentTool === 'rect' && !spaceKeyDown) {
+                    // Allow drawing new rectangles
+                    handleRectMouseDown(pos);
+                } else {
+                    // Auto-pan when clicking outside panels
+                    isPanning = true;
+                    panStartX = e.clientX;
+                    panStartY = e.clientY;
+                    scrollStartX = panX;
+                    scrollStartY = panY;
+                    canvasArea.classList.add('panning');
+                    canvas.style.cursor = 'grabbing';
+                }
+            }
+        });
+
+        function findRectangleAtPos(pos) {
+            // Check rectangles in reverse order (top to bottom)
+            for (let i = rectangles.length - 1; i >= 0; i--) {
+                if (isInsideRect(rectangles[i], pos)) {
+                    return rectangles[i];
+                }
+            }
+            return null;
+        }
 
         function handleRectMouseDown(pos) {
             // PRIORITY: Check selected rectangle's corners first (solves overlap issue)
@@ -1487,10 +1712,24 @@
             redraw();
         }
 
+        // Pan on document for smooth panning everywhere
+        document.addEventListener('mousemove', (e) => {
+            if (isPanning) {
+                const dx = e.clientX - panStartX;
+                const dy = e.clientY - panStartY;
+                panX = scrollStartX + dx;
+                panY = scrollStartY + dy;
+                updateCanvasTransform();
+            }
+        });
+
         canvas.addEventListener('mousemove', (e) => {
+            // Skip if panning
+            if (isPanning) return;
+
             mousePos = getMousePos(e);
 
-            if (currentTool === 'rect') {
+            if (currentTool === 'rect' && !spaceKeyDown) {
                 handleRectMouseMove(mousePos, e.ctrlKey);
                 updateRectCursor(mousePos);
             }
@@ -1641,6 +1880,20 @@
         }
 
         canvas.addEventListener('mouseup', () => {
+            // Stop panning
+            if (isPanning) {
+                isPanning = false;
+                canvasArea.classList.remove('panning');
+                if (currentTool === 'pan') {
+                    canvas.style.cursor = 'grab';
+                } else if (spaceKeyDown) {
+                    canvas.style.cursor = 'grab';
+                } else if (currentTool === 'rect') {
+                    canvas.style.cursor = 'crosshair';
+                }
+                return;
+            }
+
             if (currentTool === 'rect' && isDrawing) {
                 handleRectMouseUp();
             }
@@ -1672,6 +1925,24 @@
         }
 
         document.addEventListener('mouseup', () => {
+            // Stop panning
+            if (isPanning) {
+                isPanning = false;
+                canvasArea.classList.remove('panning');
+                if (currentTool === 'pan') {
+                    canvas.style.cursor = 'grab';
+                    canvasArea.style.cursor = 'grab';
+                } else if (spaceKeyDown) {
+                    canvas.style.cursor = 'grab';
+                } else if (currentTool === 'rect') {
+                    canvas.style.cursor = 'crosshair';
+                    canvasArea.style.cursor = 'default';
+                } else {
+                    canvas.style.cursor = 'default';
+                    canvasArea.style.cursor = 'default';
+                }
+            }
+
             if (draggedCorner !== null || isDraggingRect || currentRect) {
                 // Finalize new rectangle if drawing
                 if (currentRect && rectStartPos) {
@@ -1700,9 +1971,10 @@
         document.addEventListener('mousemove', (e) => {
             if (isDrawing && (draggedCorner !== null || isDraggingRect || currentRect)) {
                 const rect = canvas.getBoundingClientRect();
+                const totalScale = scale * zoomLevel;
                 const pos = {
-                    x: (e.clientX - rect.left) / scale,
-                    y: (e.clientY - rect.top) / scale
+                    x: (e.clientX - rect.left) / totalScale,
+                    y: (e.clientY - rect.top) / totalScale
                 };
                 handleRectMouseMove(pos, e.ctrlKey);
             }
@@ -1822,6 +2094,8 @@
             } else if (e.ctrlKey && e.key === 'y') {
                 e.preventDefault();
                 redo();
+            } else if (e.key === 'h' || e.key === 'H') {
+                setActiveTool('pan');
             } else if (e.key === 'r' || e.key === 'R') {
                 if (!e.ctrlKey) setActiveTool('rect');
             } else if (e.key === 'd' || e.key === 'D') {
@@ -1857,9 +2131,23 @@
         // =====================================================================
         function setActiveTool(tool) {
             currentTool = tool;
+            panBtn.classList.toggle('active', tool === 'pan');
             rectBtn.classList.toggle('active', tool === 'rect');
             eraserBtn.classList.toggle('active', tool === 'eraser');
             canvasWrapper.classList.toggle('eraser-mode', tool === 'eraser');
+
+            // Update canvas cursor based on tool
+            if (tool === 'pan') {
+                canvas.style.cursor = 'grab';
+                canvasArea.style.cursor = 'grab';
+            } else if (tool === 'rect') {
+                canvas.style.cursor = 'crosshair';
+                canvasArea.style.cursor = 'default';
+            } else {
+                canvas.style.cursor = 'default';
+                canvasArea.style.cursor = 'default';
+            }
+
             if (tool !== 'rect') {
                 currentRect = null;
                 rectStartPos = null;
@@ -1867,6 +2155,7 @@
             redraw();
         }
 
+        panBtn.addEventListener('click', () => setActiveTool('pan'));
         rectBtn.addEventListener('click', () => setActiveTool('rect'));
         eraserBtn.addEventListener('click', () => setActiveTool('eraser'));
         undoBtn.addEventListener('click', undo);
