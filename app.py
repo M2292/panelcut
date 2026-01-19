@@ -77,7 +77,7 @@ app = Flask(__name__, static_folder='static')
 # CONFIGURATION
 # =============================================================================
 # Production settings - override with environment variables
-app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_SIZE', 15 * 1024 * 1024))  # 15MB default
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_SIZE', 50 * 1024 * 1024))  # 50MB default (increased for manhwa/webtoons)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
 
 # CORS - restrict in production
@@ -643,6 +643,9 @@ def download_panels():
         )
 
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[Download Error] {error_details}")
         return jsonify({'error': str(e)}), 500
 
 
