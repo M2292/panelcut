@@ -62,23 +62,12 @@
             background-clip: text;
         }
 
-        .header-center {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 20px;
-        }
-
-        .header-info {
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-        }
-
         .stats-counter {
             display: flex;
             gap: 15px;
             color: var(--text-secondary);
             font-size: 0.8rem;
+            justify-self: end;
         }
 
         .stat-item {
@@ -104,6 +93,7 @@
             transition: all 0.2s ease;
             box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
             white-space: nowrap;
+            justify-self: center;
         }
 
         .new-page-btn:hover:not(:disabled) {
@@ -826,20 +816,17 @@
     <!-- Compact Header -->
     <header>
         <div class="logo">PanelSnip</div>
-        <div class="header-center">
-            <div class="stats-counter" id="statsCounter">
-                <div class="stat-item">
-                    <span>Downloads:</span>
-                    <span class="stat-value" id="totalDownloads">-</span>
-                </div>
-                <div class="stat-item">
-                    <span>Panels:</span>
-                    <span class="stat-value" id="totalPanels">-</span>
-                </div>
-            </div>
-            <div class="header-info" id="headerInfo">Upload an image to start</div>
-        </div>
         <button class="new-page-btn" id="newPageBtn" disabled>+ New Page</button>
+        <div class="stats-counter" id="statsCounter">
+            <div class="stat-item">
+                <span>Downloads:</span>
+                <span class="stat-value" id="totalDownloads">-</span>
+            </div>
+            <div class="stat-item">
+                <span>Panels:</span>
+                <span class="stat-value" id="totalPanels">-</span>
+            </div>
+        </div>
     </header>
 
     <!-- Main Layout -->
