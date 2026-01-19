@@ -1,7 +1,24 @@
 # Manga Panel Slicer - Deployment Guide
 
-## Live URL
-https://panelcut-260168878394.europe-west1.run.app/
+## Quick Reference - All Names & URLs
+
+| Resource | Name/ID | Direct URL |
+|----------|---------|------------|
+| **Live App** | panelcut | https://panelcut-260168878394.europe-west1.run.app/ |
+| **GitHub Repo** | M2292/panelcut | https://github.com/M2292/panelcut |
+| **GCP Project ID** | *(your project)* | https://console.cloud.google.com/ |
+| **Cloud Run Service** | `panelcut` | https://console.cloud.google.com/run/detail/europe-west1/panelcut/metrics |
+| **Cloud Run Region** | `europe-west1` | - |
+| **Firestore Database** | `(default)` | https://console.cloud.google.com/firestore/databases/-default-/data |
+| **Firestore Collection** | `stats` | https://console.cloud.google.com/firestore/databases/-default-/data/stats |
+| **Firestore Document** | `downloads` | https://console.cloud.google.com/firestore/databases/-default-/data/stats/downloads |
+| **Cloud Storage Bucket** | `panelcut-training-data` | https://console.cloud.google.com/storage/browser/panelcut-training-data |
+| **Training Images Path** | `obb/images/` | https://console.cloud.google.com/storage/browser/panelcut-training-data/obb/images |
+| **Training Labels Path** | `obb/labels/` | https://console.cloud.google.com/storage/browser/panelcut-training-data/obb/labels |
+| **Cloud Build Triggers** | - | https://console.cloud.google.com/cloud-build/triggers |
+| **Cloud Build History** | - | https://console.cloud.google.com/cloud-build/builds |
+| **Cloud Run Logs** | - | https://console.cloud.google.com/run/detail/europe-west1/panelcut/logs |
+| **YOLO Model (GitHub)** | `manga109_yolo.pt` | https://github.com/M2292/panelcut/releases/download/v1.0.0/manga109_yolo.pt |
 
 ---
 
@@ -194,7 +211,7 @@ Or in console: https://console.cloud.google.com/run/detail/europe-west1/panelcut
 Visit: https://panelcut-260168878394.europe-west1.run.app/api/stats
 
 ### View Firestore Data
-https://console.cloud.google.com/firestore/databases/-default-/data/panel/stats
+https://console.cloud.google.com/firestore/databases/-default-/data/stats/downloads
 
 ---
 
