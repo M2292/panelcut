@@ -991,7 +991,6 @@
         const canvas = document.getElementById('editorCanvas');
         const ctx = canvas.getContext('2d');
         const canvasArea = document.getElementById('canvasArea');
-        const headerInfo = document.getElementById('headerInfo');
 
         // Sidebar
         const sidebarContent = document.getElementById('sidebarContent');
@@ -1187,7 +1186,7 @@
             dropZone.classList.add('hidden');
             canvasWrapper.classList.add('active');
             autoDetectBtn.disabled = false;
-            headerInfo.textContent = `${currentImage.width} x ${currentImage.height} px`;
+            // headerInfo removed = `${currentImage.width} x ${currentImage.height} px`;
 
             // Reset state
             rectangles = [];
@@ -1955,7 +1954,7 @@
             canvasWrapper.classList.remove('active');
             autoDetectBtn.disabled = true;
             extractBtn.disabled = true;
-            headerInfo.textContent = 'Upload an image to start';
+            // headerInfo removed = 'Upload an image to start';
 
             hideEditTools();
             hideExportTools();
@@ -2031,7 +2030,7 @@
             extractBtn.style.display = 'none';
 
             showNewPageBtn();
-            headerInfo.textContent = `${bulkPages.length} pages loaded`;
+            // headerInfo removed = `${bulkPages.length} pages loaded`;
 
             // Build page thumbnails
             updatePageThumbnails();
@@ -2098,7 +2097,7 @@
                 showEditTools();
             }
 
-            headerInfo.textContent = `Page ${index + 1} of ${bulkPages.length} - ${page.fileName}`;
+            // headerInfo removed = `Page ${index + 1} of ${bulkPages.length} - ${page.fileName}`;
         }
 
         function updatePageNavigator() {
