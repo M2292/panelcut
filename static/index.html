@@ -46,9 +46,10 @@
             padding: 12px 20px;
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border);
-            display: flex;
+            display: grid;
+            grid-template-columns: auto 1fr auto;
             align-items: center;
-            justify-content: space-between;
+            gap: 20px;
             flex-shrink: 0;
         }
 
@@ -59,6 +60,13 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+        }
+
+        .header-center {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
         }
 
         .header-info {
@@ -95,15 +103,23 @@
             cursor: pointer;
             transition: all 0.2s ease;
             box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
+            white-space: nowrap;
         }
 
-        .new-page-btn:hover {
+        .new-page-btn:hover:not(:disabled) {
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
         }
 
-        .new-page-btn:active {
+        .new-page-btn:active:not(:disabled) {
             transform: translateY(0);
+        }
+
+        .new-page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: var(--bg-tertiary);
+            box-shadow: none;
         }
 
         /* Main Layout */
@@ -810,18 +826,20 @@
     <!-- Compact Header -->
     <header>
         <div class="logo">PanelSnip</div>
-        <div class="stats-counter" id="statsCounter">
-            <div class="stat-item">
-                <span>Downloads:</span>
-                <span class="stat-value" id="totalDownloads">-</span>
+        <div class="header-center">
+            <div class="stats-counter" id="statsCounter">
+                <div class="stat-item">
+                    <span>Downloads:</span>
+                    <span class="stat-value" id="totalDownloads">-</span>
+                </div>
+                <div class="stat-item">
+                    <span>Panels:</span>
+                    <span class="stat-value" id="totalPanels">-</span>
+                </div>
             </div>
-            <div class="stat-item">
-                <span>Panels:</span>
-                <span class="stat-value" id="totalPanels">-</span>
-            </div>
+            <div class="header-info" id="headerInfo">Upload an image to start</div>
         </div>
-        <button class="new-page-btn" id="newPageBtn" style="display: none;">+ New Page</button>
-        <div class="header-info" id="headerInfo">Upload an image to start</div>
+        <button class="new-page-btn" id="newPageBtn" disabled>+ New Page</button>
     </header>
 
     <!-- Main Layout -->
@@ -1905,11 +1923,11 @@
         }
 
         function showNewPageBtn() {
-            newPageBtn.style.display = 'inline-flex';
+            newPageBtn.disabled = false;
         }
 
         function hideNewPageBtn() {
-            newPageBtn.style.display = 'none';
+            newPageBtn.disabled = true;
         }
 
         function clearPanelsList() {
