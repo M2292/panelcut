@@ -20,6 +20,7 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+nul
 
 # Temp/Upload folders
 uploads/*
@@ -43,8 +44,14 @@ vetting_sessions/*
 
 # Models (too large for git - download separately or use Git LFS)
 models/*.pt
+models/**/*.pt
+*.pt
 models/.cache/
 !models/README.md
+
+# Test/Bootstrap results
+test_yolo_bootstrap_results/
+bootstrap_images/
 
 # Logs
 *.log
@@ -56,3 +63,14 @@ run.bat
 # Environment
 .env
 .env.local
+
+# Claude Code temp files
+.claude/settings.local.json
+tmpclaude-*
+
+# Local stats (use Firestore in production)
+stats.json
+
+# Temporary/scratch files
+*.txt.bak
+DEPLOYMENT_PLAN.html
