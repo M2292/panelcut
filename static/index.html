@@ -702,6 +702,38 @@
             background: var(--info);
         }
 
+        .page-thumb-delete {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 18px;
+            height: 18px;
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 12px;
+            line-height: 18px;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .page-thumb:hover .page-thumb-delete {
+            opacity: 1;
+        }
+
+        .page-thumb-delete:hover {
+            background: rgba(220, 53, 69, 1);
+            transform: scale(1.1);
+        }
+
         /* Bulk mode toolbar additions */
         .bulk-actions {
             display: flex;
@@ -948,8 +980,9 @@
                 <span>RTL</span>
             </div>
             <select class="select-small" id="modelSelect">
-                <option value="yolo">YOLO</option>
+                <option value="yolo">YOLO (Panels)</option>
                 <option value="obb">OBB</option>
+                <option value="seg_v2">Seg v2</option>
             </select>
         </div>
 
@@ -2395,6 +2428,37 @@
             nextPageBtn.disabled = currentPageIndex >= bulkPages.length - 1;
         }
 
+        function removePage(pageIndex) {
+            if (bulkPages.length <= 1) {
+                alert('Cannot remove the last page. You need at least one page.');
+                return;
+            }
+
+            // Confirm deletion
+            if (!confirm(`Remove page ${pageIndex + 1}?`)) {
+                return;
+            }
+
+            // Remove the page
+            bulkPages.splice(pageIndex, 1);
+
+            // Adjust current page index if needed
+            if (currentPageIndex >= bulkPages.length) {
+                // If we removed the last page, go to the new last page
+                currentPageIndex = bulkPages.length - 1;
+            } else if (currentPageIndex > pageIndex) {
+                // If we removed a page before the current one, adjust the index
+                currentPageIndex--;
+            }
+            // If currentPageIndex === pageIndex, we removed the current page,
+            // so we'll reload the same index (which now has a different page)
+
+            // Update UI
+            updatePageThumbnails();
+            loadPage(currentPageIndex);
+            updateExtractAllButton();
+        }
+
         function updatePageThumbnails() {
             pageThumbsStrip.innerHTML = '';
 
@@ -2407,14 +2471,26 @@
 
                 thumb.innerHTML = `
                     <img src="${page.imageData}" alt="Page ${idx + 1}">
+                    <button class="page-thumb-delete" title="Remove page">×</button>
                     <span class="page-thumb-number">${idx + 1}</span>
                     <span class="page-thumb-status"></span>
                 `;
 
-                thumb.addEventListener('click', () => {
-                    if (idx !== currentPageIndex) {
-                        loadPage(idx);
+                // Click thumbnail to switch pages
+                thumb.addEventListener('click', (e) => {
+                    // Don't switch pages if clicking the delete button
+                    if (!e.target.classList.contains('page-thumb-delete')) {
+                        if (idx !== currentPageIndex) {
+                            loadPage(idx);
+                        }
                     }
+                });
+
+                // Delete button handler
+                const deleteBtn = thumb.querySelector('.page-thumb-delete');
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    removePage(idx);
                 });
 
                 pageThumbsStrip.appendChild(thumb);
@@ -2499,21 +2575,43 @@
                     updateLoadingText(`Detecting page ${i + 1} of ${bulkPages.length}...`);
 
                     const page = bulkPages[i];
-                    if (page.detected) continue;  // Skip already detected
+                    // Always re-detect to allow switching models
+                    // Clear previous rectangles for this page
+                    page.rectangles = [];
+                    page.detected = false;
 
                     const formData = new FormData();
                     const blob = await fetch(page.imageData).then(r => r.blob());
                     formData.append('image', blob);
 
-                    const endpoint = model === 'obb'
-                        ? `/api/slice_obb?min_area=10000&rtl=${rtl}&obb_model=models/manga_panels_obb.pt`
-                        : `/api/slice_hybrid?min_area=10000&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true`;
+                    // Determine endpoint and model based on selection
+                    let endpoint;
+                    if (model === 'obb') {
+                        endpoint = `/api/slice_obb?min_area=10000&rtl=${rtl}&obb_model=models/manga_panels_obb.pt`;
+                    } else if (model === 'seg_v2') {
+                        endpoint = `/api/slice_seg?min_area=10000&rtl=${rtl}&seg_model=models/manga_panels_seg_v2.pt`;
+                    } else {
+                        // YOLO - detect panels (class 2)
+                        endpoint = `/api/slice_hybrid?min_area=10000&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true`;
+                    }
 
                     const response = await fetch(endpoint, { method: 'POST', body: formData });
+
+                    // Check for rate limiting
+                    if (response.status === 429) {
+                        throw new Error('Too many requests. Please wait a moment and try again. (If testing locally, this shouldn\'t happen - check server logs)');
+                    }
+
+                    // Check for other errors
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Detection failed: ${response.status} ${response.statusText}`);
+                    }
+
                     const data = await response.json();
 
                     if (data.panels && data.panels.length > 0) {
-                        page.rectangles = panelsToRectangles(data.panels, model === 'obb');
+                        page.rectangles = panelsToRectangles(data.panels, model === 'obb' || model === 'seg_v2');
                         page.detected = true;
                     }
 
@@ -2606,6 +2704,10 @@
         autoDetectBtn.addEventListener('click', async () => {
             if (!currentImage) return;
 
+            // Clear previous detection results before running new detection
+            rectangles = [];
+            redraw();
+
             loading.classList.add('active');
 
             try {
@@ -2618,20 +2720,84 @@
                 const selectedModel = modelSelect.value;
 
                 let response;
-                if (selectedModel === 'obb') {
-                    response = await fetch(`/api/slice_obb?min_area=${minArea}&rtl=${rtl}&obb_model=models/manga_panels_obb.pt`, {
+                let usingFallback = false;
+
+                if (selectedModel === 'obb' || selectedModel === 'seg_v2') {
+                    let endpoint, modelPath;
+
+                    if (selectedModel === 'seg_v2') {
+                        modelPath = 'models/manga_panels_seg_v2.pt';
+                        endpoint = `/api/slice_seg?min_area=${minArea}&rtl=${rtl}&seg_model=${modelPath}`;
+                    } else {
+                        modelPath = 'models/manga_panels_obb.pt';
+                        endpoint = `/api/slice_obb?min_area=${minArea}&rtl=${rtl}&obb_model=${modelPath}`;
+                    }
+
+                    response = await fetch(endpoint, {
                         method: 'POST',
                         body: formData
                     });
+
+                    // Check if Seg v2 model doesn't exist yet
+                    const checkData = await response.json();
+                    if (checkData.error && checkData.model_exists === false && selectedModel === 'seg_v2') {
+                        // Fall back to YOLO for detection
+                        console.log('Seg v2 model not found, falling back to YOLO');
+                        usingFallback = true;
+
+                        // Re-fetch blob since we consumed it
+                        const blob = await fetch(currentImageData).then(r => r.blob());
+                        const fallbackFormData = new FormData();
+                        fallbackFormData.append('image', blob);
+
+                        response = await fetch(`/api/slice_hybrid?min_area=${minArea}&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true`, {
+                            method: 'POST',
+                            body: fallbackFormData
+                        });
+                    } else if (checkData.error) {
+                        throw new Error(checkData.error);
+                    } else {
+                        // Model worked, continue with that data
+                        if (checkData.panels && checkData.panels.length > 0) {
+                            saveHistory();
+                            lastYoloResult = checkData;
+                            loadPanelsAsRectangles(checkData.panels, true);
+                            showDetectionToast(checkData.detection_method, checkData.panel_count);
+                            showEditTools();
+                            return;
+                        }
+                    }
                 } else {
+                    // YOLO - detect panels (class 2)
                     response = await fetch(`/api/slice_hybrid?min_area=${minArea}&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true`, {
                         method: 'POST',
                         body: formData
                     });
                 }
 
+                // Check for rate limiting
+                if (response.status === 429) {
+                    throw new Error('Too many requests. Please wait a moment and try again.\n\n(If testing locally, this shouldn\'t happen - the rate limiter should be disabled. Check server console for "[Rate Limiter] Disabled" message)');
+                }
+
+                // Check for other errors before parsing JSON
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Detection error response:', errorText);
+                    throw new Error(`Detection failed: ${response.status} ${response.statusText}`);
+                }
+
                 const data = await response.json();
                 if (data.error) throw new Error(data.error);
+
+                // Show special message if we fell back to YOLO for Seg v2
+                if (usingFallback) {
+                    showDetectionToast('YOLO (Seg v2 not trained yet)', data.panel_count);
+                    // Show additional info notification
+                    setTimeout(() => {
+                        alert('Seg v2 model not trained yet!\n\nUsing YOLO for now. Edit the detected panels to create quadrilaterals, then download to collect training data.\n\nOnce you have enough training data, run: train_seg_v2_model.bat\n\nAfter training, Seg v2 will automatically be used for detection.');
+                    }, 500);
+                }
 
                 console.log('Detection method:', data.detection_method);
                 console.log('Panel count:', data.panel_count);
@@ -2641,7 +2807,7 @@
 
                 // Load panels as editable rectangles
                 if (data.panels && data.panels.length > 0) {
-                    loadPanelsAsRectangles(data.panels, selectedModel === 'obb');
+                    loadPanelsAsRectangles(data.panels, selectedModel === 'obb' || selectedModel === 'seg_v2');
                 }
 
                 showDetectionToast(data.detection_method, data.panel_count);
@@ -2981,14 +3147,29 @@
                         return;
                     }
 
-                    response = await fetch('/api/download_bulk', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ pages: pagePanels })
-                    });
+                    // Call bulk download API
+                    try {
+                        response = await fetch('/api/download_bulk', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ pages: pagePanels })
+                        });
+
+                        // Check if response is ok
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            console.error('Bulk download error response:', errorText);
+                            throw new Error(`Bulk download failed: ${response.status} ${response.statusText}`);
+                        }
+                    } catch (e) {
+                        console.error('Bulk download fetch error:', e);
+                        throw new Error(`Bulk download error: ${e.message}`);
+                    }
+
                     downloadName = 'manga_panels_bulk.zip';
 
                     // Auto-save training data for all pages
+                    console.log(`Saving training data for ${bulkPages.length} pages...`);
                     for (let i = 0; i < bulkPages.length; i++) {
                         const page = bulkPages[i];
                         if (page.rectangles && page.rectangles.length > 0) {
@@ -3011,16 +3192,27 @@
                                 const imageBlob = await fetch(page.imageData).then(r => r.blob());
                                 formData.append('image', imageBlob);
                                 formData.append('boxes', JSON.stringify(boxes));
+                                // Pass the selected model version for training data collection
+                                // OBB → save to obb (rotated rectangles)
+                                // Seg v2 → save to seg_v2 (arbitrary quadrilaterals)
+                                const selectedModel = modelSelect.value;
+                                const modelVersion = selectedModel === 'seg_v2' ? 'seg_v2' : 'obb';
+                                formData.append('model_version', modelVersion);
 
-                                await fetch('/api/save_training_sample', {
+                                const saveResponse = await fetch('/api/save_training_sample', {
                                     method: 'POST',
                                     body: formData
                                 });
+
+                                if (!saveResponse.ok) {
+                                    console.warn(`Training data save failed for page ${i + 1}: ${saveResponse.status}`);
+                                }
                             } catch (e) {
                                 console.warn(`Auto-save failed for page ${i + 1}:`, e);
                             }
                         }
                     }
+                    console.log('Training data save complete');
                 } else {
                     // Single page mode
                     if (selectedPanels.size === 0) {
@@ -3050,6 +3242,12 @@
                         });
                         requestBody.original_image = currentImageData;
                         requestBody.boxes = boxes;
+                        // Pass the selected model version for training data collection
+                        // OBB → save to obb (rotated rectangles)
+                        // Seg v2 → save to seg_v2 (arbitrary quadrilaterals)
+                        const selectedModel = modelSelect.value;
+                        const modelVersion = selectedModel === 'seg_v2' ? 'seg_v2' : 'obb';
+                        requestBody.model_version = modelVersion;
                     }
 
                     response = await fetch('/api/download', {
@@ -3060,7 +3258,11 @@
                     downloadName = 'manga_panels.zip';
                 }
 
-                if (!response.ok) throw new Error('Download failed');
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Download error response:', errorText);
+                    throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+                }
 
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
