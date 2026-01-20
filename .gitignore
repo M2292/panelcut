@@ -38,6 +38,12 @@ training_data/obb/runs/
 !training_data/obb/images/.gitkeep
 !training_data/obb/labels/.gitkeep
 
+# OBB v2 training data
+training_data/obb_v2/
+
+# Seg v2 training data
+training_data/seg_v2/
+
 # Vetting sessions
 vetting_sessions/*
 !vetting_sessions/.gitkeep
@@ -63,6 +69,10 @@ run.bat
 # Environment
 .env
 .env.local
+
+# GCP Service Account Keys (NEVER commit these!)
+panelcut-*.json
+*-service-account*.json
 
 # Claude Code temp files
 .claude/settings.local.json

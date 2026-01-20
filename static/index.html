@@ -980,7 +980,7 @@
                 <span>RTL</span>
             </div>
             <select class="select-small" id="modelSelect">
-                <option value="yolo">YOLO (Panels)</option>
+                <option value="yolo">YOLO (Manga109)</option>
                 <option value="obb">OBB</option>
                 <option value="seg_v2">Seg v2</option>
             </select>
@@ -2591,8 +2591,8 @@
                     } else if (model === 'seg_v2') {
                         endpoint = `/api/slice_seg?min_area=10000&rtl=${rtl}&seg_model=models/manga_panels_seg_v2.pt`;
                     } else {
-                        // YOLO - detect panels (class 2)
-                        endpoint = `/api/slice_hybrid?min_area=10000&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true`;
+                        // YOLO (Manga109) - detect panels (class 2)
+                        endpoint = `/api/slice_hybrid?min_area=10000&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true&refine_corners=false`;
                     }
 
                     const response = await fetch(endpoint, { method: 'POST', body: formData });
@@ -2769,7 +2769,7 @@
                     }
                 } else {
                     // YOLO - detect panels (class 2)
-                    response = await fetch(`/api/slice_hybrid?min_area=${minArea}&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true`, {
+                    response = await fetch(`/api/slice_hybrid?min_area=${minArea}&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true&refine_corners=false`, {
                         method: 'POST',
                         body: formData
                     });
@@ -2825,14 +2825,20 @@
             rectangles = [];
             selectedRect = null;
 
+            console.log('[Refinement] Loading panels, count:', panelsData.length);
+
             panelsData.forEach((panel, i) => {
                 let rect = null;
 
-                if (useObbCorners && panel.corners && panel.corners.length === 4) {
+                // Use corners if they exist (from OBB, seg_v2, or refined YOLO detections)
+                if (panel.corners && panel.corners.length === 4) {
+                    console.log(`[Refinement] Panel ${i} has refined corners:`, panel.corners);
                     rect = {
                         corners: panel.corners.map(c => ({ x: c.x, y: c.y }))
                     };
                 } else if (panel.bounding_box) {
+                    // Fallback to bounding box if no corners
+                    console.log(`[Refinement] Panel ${i} using bbox (no corners available)`);
                     const bbox = panel.bounding_box;
                     rect = {
                         corners: [
@@ -3192,11 +3198,9 @@
                                 const imageBlob = await fetch(page.imageData).then(r => r.blob());
                                 formData.append('image', imageBlob);
                                 formData.append('boxes', JSON.stringify(boxes));
-                                // Pass the selected model version for training data collection
-                                // OBB → save to obb (rotated rectangles)
-                                // Seg v2 → save to seg_v2 (arbitrary quadrilaterals)
-                                const selectedModel = modelSelect.value;
-                                const modelVersion = selectedModel === 'seg_v2' ? 'seg_v2' : 'obb';
+                                // Always save downloaded training data to seg_v2
+                                // Downloads include user-edited corners which train segmentation model
+                                const modelVersion = 'seg_v2';
                                 formData.append('model_version', modelVersion);
 
                                 const saveResponse = await fetch('/api/save_training_sample', {
@@ -3242,11 +3246,9 @@
                         });
                         requestBody.original_image = currentImageData;
                         requestBody.boxes = boxes;
-                        // Pass the selected model version for training data collection
-                        // OBB → save to obb (rotated rectangles)
-                        // Seg v2 → save to seg_v2 (arbitrary quadrilaterals)
-                        const selectedModel = modelSelect.value;
-                        const modelVersion = selectedModel === 'seg_v2' ? 'seg_v2' : 'obb';
+                        // Always save downloaded training data to seg_v2
+                        // Downloads include user-edited corners which train segmentation model
+                        const modelVersion = 'seg_v2';
                         requestBody.model_version = modelVersion;
                     }
 
