@@ -980,8 +980,8 @@
                 <span>RTL</span>
             </div>
             <select class="select-small" id="modelSelect">
-                <option value="yolo">YOLO (Manga109)</option>
-                <option value="obb">OBB</option>
+                <option value="hybrid">Hybrid</option>
+                <option value="yolo">YOLO</option>
                 <option value="seg_v2">Seg v2</option>
             </select>
         </div>
@@ -2294,9 +2294,12 @@
 
         function showDetectionToast(method, panelCount) {
             let bg, label;
-            if (method === 'obb') {
+            if (method === 'hybrid') {
                 bg = 'linear-gradient(135deg, #9C27B0, #7B1FA2)';
-                label = 'OBB Detection';
+                label = 'Hybrid Detection';
+            } else if (method === 'segmentation') {
+                bg = 'linear-gradient(135deg, #FF5722, #E64A19)';
+                label = 'Seg v2 Detection';
             } else if (method === 'yolo') {
                 bg = 'linear-gradient(135deg, #4CAF50, #45a049)';
                 label = 'YOLO Detection';
@@ -2586,10 +2589,10 @@
 
                     // Determine endpoint and model based on selection
                     let endpoint;
-                    if (model === 'obb') {
-                        endpoint = `/api/slice_obb?min_area=10000&rtl=${rtl}&obb_model=models/manga_panels_obb.pt`;
-                    } else if (model === 'seg_v2') {
+                    if (model === 'seg_v2') {
                         endpoint = `/api/slice_seg?min_area=10000&rtl=${rtl}&seg_model=models/manga_panels_seg_v2.pt`;
+                    } else if (model === 'hybrid') {
+                        endpoint = `/api/slice_hybrid_models?min_area=10000&rtl=${rtl}&yolo_model=models/manga109_yolo.pt&seg_model=models/manga_panels_seg_v2.pt`;
                     } else {
                         // YOLO (Manga109) - detect panels (class 2)
                         endpoint = `/api/slice_hybrid?min_area=10000&rtl=${rtl}&tolerance=30&debug=false&yolo_model=models/manga109_yolo.pt&prefer_yolo=true&refine_corners=false`;
@@ -2611,7 +2614,7 @@
                     const data = await response.json();
 
                     if (data.panels && data.panels.length > 0) {
-                        page.rectangles = panelsToRectangles(data.panels, model === 'obb' || model === 'seg_v2');
+                        page.rectangles = panelsToRectangles(data.panels, model === 'seg_v2' || model === 'hybrid');
                         page.detected = true;
                     }
 
@@ -2722,15 +2725,14 @@
                 let response;
                 let usingFallback = false;
 
-                if (selectedModel === 'obb' || selectedModel === 'seg_v2') {
-                    let endpoint, modelPath;
+                if (selectedModel === 'seg_v2' || selectedModel === 'hybrid') {
+                    let endpoint;
 
                     if (selectedModel === 'seg_v2') {
-                        modelPath = 'models/manga_panels_seg_v2.pt';
-                        endpoint = `/api/slice_seg?min_area=${minArea}&rtl=${rtl}&seg_model=${modelPath}`;
+                        endpoint = `/api/slice_seg?min_area=${minArea}&rtl=${rtl}&seg_model=models/manga_panels_seg_v2.pt`;
                     } else {
-                        modelPath = 'models/manga_panels_obb.pt';
-                        endpoint = `/api/slice_obb?min_area=${minArea}&rtl=${rtl}&obb_model=${modelPath}`;
+                        // Hybrid - uses both YOLO and Seg models
+                        endpoint = `/api/slice_hybrid_models?min_area=${minArea}&rtl=${rtl}&yolo_model=models/manga109_yolo.pt&seg_model=models/manga_panels_seg_v2.pt`;
                     }
 
                     response = await fetch(endpoint, {

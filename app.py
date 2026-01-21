@@ -76,9 +76,19 @@ app = Flask(__name__, static_folder='static')
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
+# Detect if running locally (no limits for local development)
+IS_LOCAL = os.environ.get('FLASK_ENV') != 'production' and os.environ.get('ENV') != 'production'
+
 # Production settings - override with environment variables
-app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_SIZE', 50 * 1024 * 1024))  # 50MB default (increased for manhwa/webtoons)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
+
+# Upload size limits - UNLIMITED for local, 200MB for production
+if IS_LOCAL:
+    app.config['MAX_CONTENT_LENGTH'] = None  # No limits for local testing
+    print("[Upload Limit] Disabled for local development (unlimited)")
+else:
+    app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_SIZE', 200 * 1024 * 1024))  # 200MB for production
+    print(f"[Upload Limit] Production mode: {app.config['MAX_CONTENT_LENGTH'] / (1024*1024):.0f}MB")
 
 # CORS - restrict in production
 ALLOWED_ORIGINS = os.environ.get('ALLOWED_ORIGINS', '*').split(',')
@@ -87,22 +97,25 @@ if ALLOWED_ORIGINS == ['*']:
 else:
     CORS(app, origins=ALLOWED_ORIGINS)
 
-# Rate limiting (if available)
-if LIMITER_AVAILABLE:
+# Rate limiting (disabled for local development)
+if LIMITER_AVAILABLE and not IS_LOCAL:
     limiter = Limiter(
         key_func=get_remote_address,
         app=app,
         default_limits=["200 per day", "50 per hour"],
         storage_uri=os.environ.get('REDIS_URL', 'memory://')
     )
+    print("[Rate Limiter] Enabled for production")
 else:
-    # Dummy limiter decorator that does nothing
+    # Dummy limiter decorator that does nothing (for local dev)
     class DummyLimiter:
         def limit(self, *args, **kwargs):
             def decorator(f):
                 return f
             return decorator
     limiter = DummyLimiter()
+    if IS_LOCAL:
+        print("[Rate Limiter] Disabled for local development")
 
 # Security headers
 @app.after_request
@@ -182,11 +195,17 @@ def base64_to_image(base64_string: str) -> np.ndarray:
 @app.route('/')
 def index():
     """Serve the main page"""
-    return send_from_directory('static', 'index.html')
+    response = send_from_directory('static', 'index.html')
+    # Disable caching for local development
+    if IS_LOCAL:
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
 
 
 @app.route('/api/slice', methods=['POST'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")  # Increased for bulk operations
 def slice_image():
     """
     Slice a manga page into panels
@@ -604,9 +623,10 @@ def download_panels():
         # Silently save training data if original image and boxes are provided
         original_image = data.get('original_image')
         boxes = data.get('boxes')
+        model_version = data.get('model_version', 'obb')  # Default to 'obb' for backward compatibility
         if original_image and boxes:
             try:
-                _save_training_data_silent(original_image, boxes)
+                _save_training_data_silent(original_image, boxes, model_version)
             except Exception as e:
                 # Don't fail the download if training data save fails
                 print(f"[Training] Failed to save training data: {e}")
@@ -649,11 +669,16 @@ def download_panels():
         return jsonify({'error': str(e)}), 500
 
 
-def _save_training_data_silent(original_image_base64: str, boxes: list):
+def _save_training_data_silent(original_image_base64: str, boxes: list, model_version: str = 'obb'):
     """
-    Silently save training data for OBB model training.
+    Silently save training data for model training.
     Called when users download panels to collect training samples.
     Saves to Cloud Storage if available, otherwise local filesystem.
+
+    Args:
+        original_image_base64: Base64 encoded image
+        boxes: List of panel boxes with corners
+        model_version: 'obb' or 'seg_v2' - determines which training folder to use
     """
     # Decode original image
     if ',' in original_image_base64:
@@ -717,21 +742,21 @@ def _save_training_data_silent(original_image_base64: str, boxes: list):
 
             # Upload image
             _, img_encoded = cv2.imencode('.png', image)
-            img_blob = bucket.blob(f"obb/images/{image_filename}")
+            img_blob = bucket.blob(f"{model_version}/images/{image_filename}")
             img_blob.upload_from_string(img_encoded.tobytes(), content_type='image/png')
 
             # Upload label
-            label_blob = bucket.blob(f"obb/labels/{label_filename}")
+            label_blob = bucket.blob(f"{model_version}/labels/{label_filename}")
             label_blob.upload_from_string(label_content, content_type='text/plain')
 
-            print(f"[Training] Saved to GCS: {image_filename} with {len(boxes)} panels")
+            print(f"[Training] Saved to GCS ({model_version}): {image_filename} with {len(boxes)} panels")
             return
         except Exception as e:
             print(f"[Training] GCS upload failed: {e}")
 
     # Fallback to local filesystem
-    obb_images_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'images')
-    obb_labels_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels')
+    obb_images_dir = os.path.join(TRAINING_DATA_FOLDER, model_version, 'images')
+    obb_labels_dir = os.path.join(TRAINING_DATA_FOLDER, model_version, 'labels')
     os.makedirs(obb_images_dir, exist_ok=True)
     os.makedirs(obb_labels_dir, exist_ok=True)
 
@@ -739,7 +764,7 @@ def _save_training_data_silent(original_image_base64: str, boxes: list):
     with open(os.path.join(obb_labels_dir, label_filename), 'w') as f:
         f.write(label_content)
 
-    print(f"[Training] Saved locally: {image_filename} with {len(boxes)} panels")
+    print(f"[Training] Saved locally ({model_version}): {image_filename} with {len(boxes)} panels")
 
 
 @app.route('/api/health', methods=['GET'])
@@ -772,6 +797,9 @@ def download_bulk_panels():
 
         pages = data['pages']
 
+        # Count total panels for stats
+        total_panels_count = sum(len(panels) for panels in pages if panels)
+
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             for page_idx, panels in enumerate(pages):
@@ -790,6 +818,13 @@ def download_bulk_panels():
                     zip_file.writestr(filename, img_bytes)
 
         zip_buffer.seek(0)
+
+        # Update download stats
+        stats = load_stats()
+        stats['total_downloads'] = stats.get('total_downloads', 0) + 1
+        stats['total_panels'] = stats.get('total_panels', 0) + total_panels_count
+        save_stats(stats)
+
         return send_file(
             zip_buffer,
             mimetype='application/zip',
@@ -831,7 +866,7 @@ def get_capabilities():
 
 
 @app.route('/api/slice_hybrid', methods=['POST'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")  # Increased for bulk operations
 def slice_hybrid():
     """
     Slice manga page using hybrid detection (YOLO + CV fallback).
@@ -840,7 +875,10 @@ def slice_hybrid():
         - All params from /api/slice
         - yolo_model: Path to YOLO model (optional)
         - yolo_confidence: YOLO confidence threshold (default: 0.5)
+        - yolo_classes: Comma-separated class IDs to detect (default: "2" for panels)
+                       Class 0=body, 1=face, 2=frame, 3=text
         - prefer_yolo: Try YOLO first (default: true)
+        - refine_corners: Auto-refine corners to fit angled panels (default: true)
 
     Returns:
         Same format as /api/slice with additional detection method info
@@ -857,7 +895,10 @@ def slice_hybrid():
         # Hybrid-specific params
         yolo_model = request.args.get('yolo_model', None)
         yolo_confidence = request.args.get('yolo_confidence', 0.5, type=float)
+        yolo_classes_str = request.args.get('yolo_classes', '2')
+        yolo_classes = [int(c.strip()) for c in yolo_classes_str.split(',') if c.strip().isdigit()]
         prefer_yolo = request.args.get('prefer_yolo', 'true').lower() == 'true'
+        refine_corners = request.args.get('refine_corners', 'true').lower() == 'true'
 
         # Get image
         if 'image' not in request.files:
@@ -880,6 +921,7 @@ def slice_hybrid():
             tolerance=tolerance,
             yolo_model=yolo_model,
             yolo_confidence=yolo_confidence,
+            yolo_classes=yolo_classes if yolo_classes else None,
             prefer_yolo=prefer_yolo,
             debug=debug
         )
@@ -889,20 +931,38 @@ def slice_hybrid():
         panels_data = []
         for panel in panels:
             x, y, w, h = panel.bounding_box
-            panels_data.append({
+            panel_dict = {
                 'index': int(panel.index),
                 'image': image_to_base64(panel.image),
                 'width': int(panel.image.shape[1]),
                 'height': int(panel.image.shape[0]),
                 'area': int(panel.area),
                 'confidence': float(panel.confidence),
+                'class_id': int(panel.class_id),
+                'class_name': str(panel.class_name),
                 'bounding_box': {
                     'x': int(x),
                     'y': int(y),
                     'width': int(w),
                     'height': int(h)
                 }
-            })
+            }
+            panels_data.append(panel_dict)
+
+        # Apply corner refinement if enabled
+        if refine_corners and debug_info.get('method_used') == 'yolo':
+            try:
+                from panel_refiner import refine_all_panels
+                print(f"[Corner Refinement] Refining {len(panels_data)} panels...")
+                panels_data = refine_all_panels(image, panels_data, refine_method='auto', enable_refinement=True)
+                print(f"[Corner Refinement] Refinement complete. Sample panel has corners: {panels_data[0].get('corners') is not None if panels_data else 'N/A'}")
+            except Exception as e:
+                print(f"[Corner Refinement] Failed: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continue without refinement
+        else:
+            print(f"[Corner Refinement] Skipped - refine_corners={refine_corners}, method={debug_info.get('method_used')}")
 
         # Convert numpy types in debug_info to native Python types
         def convert_numpy_types(obj):
@@ -945,7 +1005,7 @@ def slice_hybrid():
 
 
 @app.route('/api/slice_obb', methods=['POST'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")  # Increased for bulk operations
 def slice_obb():
     """
     Slice manga page using OBB (Oriented Bounding Box) detection.
@@ -961,7 +1021,7 @@ def slice_obb():
         JSON with panels including corner coordinates for rotated boxes
     """
     try:
-        from panel_slicer import Panel, sort_panels_reading_order, extract_panel_with_mask
+        from panel_slicer import Panel, sort_panels_reading_order, extract_panel_with_mask, draw_panel_visualization
 
         min_area = request.args.get('min_area', 10000, type=int)
         rtl = request.args.get('rtl', 'true').lower() == 'true'
@@ -1005,7 +1065,10 @@ def slice_obb():
             })
 
         # Convert OBB panels to standard Panel format for extraction
+        # Keep a mapping from Panel to original OBBPanel for later reference
         panels = []
+        panel_to_obb = {}  # Maps Panel object to its original OBBPanel
+
         for i, obb_panel in enumerate(obb_panels):
             if obb_panel.size[0] * obb_panel.size[1] < min_area:
                 continue
@@ -1026,21 +1089,22 @@ def slice_obb():
                 confidence=obb_panel.confidence
             )
             panels.append(panel)
+            panel_to_obb[id(panel)] = obb_panel  # Store mapping using object id
 
         # Sort panels in reading order
         if panels:
             panels = sort_panels_reading_order(panels, rtl=rtl)
 
-        # Create visualization with OBB boxes
-        viz_image = detector.draw_detections(image, obb_panels)
+        # Create visualization using the sorted panels (same as YOLO/hybrid)
+        viz_image = draw_panel_visualization(image, panels)
 
         # Build response
         viz_base64 = image_to_base64(viz_image)
         panels_data = []
         for panel in panels:
             x, y, w, h = panel.bounding_box
-            # Find corresponding OBB panel to get corners
-            obb_panel = obb_panels[panel.index] if panel.index < len(obb_panels) else None
+            # Get the original OBB panel using the mapping
+            obb_panel = panel_to_obb.get(id(panel))
 
             panel_data = {
                 'index': int(panel.index),
@@ -1075,6 +1139,319 @@ def slice_obb():
             'panel_count': len(panels),
             'detection_method': 'obb',
             'model_used': obb_model
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/slice_seg', methods=['POST'])
+@limiter.limit("100 per minute")  # Increased for bulk operations
+def slice_seg():
+    """
+    Slice manga page using Segmentation detection.
+    This endpoint uses a trained segmentation model to detect panels with arbitrary quadrilaterals.
+
+    Query params:
+        - min_area: Minimum panel area (default: 10000)
+        - rtl: Reading order right-to-left (default: true)
+        - seg_model: Path to segmentation model (default: models/manga_panels_seg_v2.pt)
+        - seg_confidence: Confidence threshold (default: 0.5)
+
+    Returns:
+        JSON with panels including polygon coordinates for arbitrary shapes
+    """
+    try:
+        from panel_slicer import Panel, sort_panels_reading_order, extract_panel_with_mask, draw_panel_visualization
+
+        min_area = request.args.get('min_area', 10000, type=int)
+        rtl = request.args.get('rtl', 'true').lower() == 'true'
+        seg_model = request.args.get('seg_model', 'models/manga_panels_seg_v2.pt')
+        seg_confidence = request.args.get('seg_confidence', 0.5, type=float)
+
+        # Get image
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image file provided'}), 400
+
+        file = request.files['image']
+        file_bytes = np.frombuffer(file.read(), np.uint8)
+        image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+        if image is None:
+            return jsonify({'error': 'Could not decode image'}), 400
+
+        # Check if segmentation model exists
+        if not os.path.exists(seg_model):
+            return jsonify({
+                'error': f'Segmentation model not found at {seg_model}. Train a segmentation model first.',
+                'model_exists': False
+            }), 400
+
+        # Import and use segmentation detector
+        try:
+            from yolo_detector import SegmentationDetector
+        except ImportError:
+            return jsonify({'error': 'Segmentation detector not available'}), 500
+
+        detector = SegmentationDetector(model_path=seg_model, confidence=seg_confidence)
+        seg_panels = detector.detect_panels_only(image)
+
+        if not seg_panels:
+            return jsonify({
+                'success': True,
+                'panels': [],
+                'panel_count': 0,
+                'detection_method': 'segmentation',
+                'message': 'No panels detected by segmentation model'
+            })
+
+        # Convert segmentation panels to standard Panel format for extraction
+        panels = []
+        panel_to_seg = {}  # Maps Panel object to its original SegPanel
+
+        for i, seg_panel in enumerate(seg_panels):
+            if seg_panel.area < min_area:
+                continue
+
+            # Extract panel using the polygon contour
+            panel_image = extract_panel_with_mask(image, seg_panel.contour)
+
+            # Get axis-aligned bbox for compatibility
+            x1, y1, x2, y2 = seg_panel.bbox
+            bbox = (x1, y1, x2 - x1, y2 - y1)
+
+            panel = Panel(
+                image=panel_image,
+                contour=seg_panel.contour,
+                bounding_box=bbox,
+                area=seg_panel.area,
+                index=i,
+                confidence=seg_panel.confidence
+            )
+            panels.append(panel)
+            panel_to_seg[id(panel)] = seg_panel
+
+        # Sort panels in reading order
+        if panels:
+            panels = sort_panels_reading_order(panels, rtl=rtl)
+
+        # Create visualization
+        viz_image = draw_panel_visualization(image, panels)
+
+        # Build response
+        viz_base64 = image_to_base64(viz_image)
+        panels_data = []
+        for panel in panels:
+            x, y, w, h = panel.bounding_box
+            # Get the original segmentation panel using the mapping
+            seg_panel = panel_to_seg.get(id(panel))
+
+            panel_data = {
+                'index': int(panel.index),
+                'image': image_to_base64(panel.image),
+                'width': int(panel.image.shape[1]),
+                'height': int(panel.image.shape[0]),
+                'area': int(panel.area),
+                'confidence': float(panel.confidence),
+                'bounding_box': {
+                    'x': int(x),
+                    'y': int(y),
+                    'width': int(w),
+                    'height': int(h)
+                }
+            }
+
+            # Add segmentation-specific data (polygon corners)
+            if seg_panel is not None:
+                # For segmentation, we want all polygon points (not just 4 corners)
+                # But for compatibility with the frontend, extract the 4 main corners
+                polygon = seg_panel.polygon
+                if len(polygon) >= 4:
+                    # Use first 4 points or approximate to 4 corners if more points
+                    if len(polygon) > 4:
+                        # Approximate polygon to 4 corners
+                        epsilon = 0.02 * cv2.arcLength(seg_panel.contour, True)
+                        approx = cv2.approxPolyDP(seg_panel.contour, epsilon, True)
+                        if len(approx) == 4:
+                            corners = approx.squeeze()
+                        else:
+                            # Fallback: use first 4 points
+                            corners = polygon[:4]
+                    else:
+                        corners = polygon[:4]
+
+                    panel_data['corners'] = [
+                        {'x': float(c[0]), 'y': float(c[1])}
+                        for c in corners
+                    ]
+                    panel_data['is_segmentation'] = True
+
+            panels_data.append(panel_data)
+
+        return jsonify({
+            'success': True,
+            'visualization': viz_base64,
+            'panels': panels_data,
+            'panel_count': len(panels),
+            'detection_method': 'segmentation',
+            'model_used': seg_model
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/slice_hybrid_models', methods=['POST'])
+@limiter.limit("100 per minute")
+def slice_hybrid_models():
+    """
+    Slice manga page using Hybrid detection (YOLO + Segmentation combined).
+    This endpoint uses both models and intelligently selects:
+    - YOLO for rectangular panels (more stable)
+    - Segmentation for odd-shaped/diagonal panels (better corner accuracy)
+
+    Query params:
+        - min_area: Minimum panel area (default: 10000)
+        - rtl: Reading order right-to-left (default: true)
+        - yolo_model: Path to YOLO model (default: models/manga109_yolo.pt)
+        - seg_model: Path to segmentation model (default: models/manga_panels_seg_v2.pt)
+        - confidence: Confidence threshold (default: 0.5)
+
+    Returns:
+        JSON with panels including corner coordinates and source model info
+    """
+    try:
+        from panel_slicer import Panel, sort_panels_reading_order, extract_panel_with_mask, draw_panel_visualization
+
+        min_area = request.args.get('min_area', 10000, type=int)
+        rtl = request.args.get('rtl', 'true').lower() == 'true'
+        yolo_model = request.args.get('yolo_model', 'models/manga109_yolo.pt')
+        seg_model = request.args.get('seg_model', 'models/manga_panels_seg_v2.pt')
+        confidence = request.args.get('confidence', 0.5, type=float)
+
+        # Get image
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image file provided'}), 400
+
+        file = request.files['image']
+        file_bytes = np.frombuffer(file.read(), np.uint8)
+        image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+        if image is None:
+            return jsonify({'error': 'Could not decode image'}), 400
+
+        # Import and use hybrid detector
+        try:
+            from yolo_detector import HybridDetector
+        except ImportError:
+            return jsonify({'error': 'Hybrid detector not available'}), 500
+
+        detector = HybridDetector(
+            yolo_model_path=yolo_model,
+            seg_model_path=seg_model,
+            confidence=confidence
+        )
+        hybrid_panels = detector.detect_panels_only(image)
+
+        if not hybrid_panels:
+            return jsonify({
+                'success': True,
+                'panels': [],
+                'panel_count': 0,
+                'detection_method': 'hybrid',
+                'message': 'No panels detected by hybrid model'
+            })
+
+        # Convert hybrid panels to standard Panel format for extraction
+        panels = []
+        panel_to_hybrid = {}
+
+        for i, hybrid_panel in enumerate(hybrid_panels):
+            if hybrid_panel.area < min_area:
+                continue
+
+            # Extract panel using the polygon contour
+            panel_image = extract_panel_with_mask(image, hybrid_panel.contour)
+
+            # Get axis-aligned bbox for compatibility
+            x1, y1, x2, y2 = hybrid_panel.bbox
+            bbox = (x1, y1, x2 - x1, y2 - y1)
+
+            panel = Panel(
+                image=panel_image,
+                contour=hybrid_panel.contour,
+                bounding_box=bbox,
+                area=hybrid_panel.area,
+                index=i,
+                confidence=hybrid_panel.confidence
+            )
+            panels.append(panel)
+            panel_to_hybrid[id(panel)] = hybrid_panel
+
+        # Sort panels in reading order
+        if panels:
+            panels = sort_panels_reading_order(panels, rtl=rtl)
+
+        # Create visualization
+        viz_image = draw_panel_visualization(image, panels)
+
+        # Build response
+        viz_base64 = image_to_base64(viz_image)
+        panels_data = []
+        yolo_count = 0
+        seg_count = 0
+
+        for panel in panels:
+            x, y, w, h = panel.bounding_box
+            hybrid_panel = panel_to_hybrid.get(id(panel))
+
+            panel_data = {
+                'index': int(panel.index),
+                'image': image_to_base64(panel.image),
+                'width': int(panel.image.shape[1]),
+                'height': int(panel.image.shape[0]),
+                'area': int(panel.area),
+                'confidence': float(panel.confidence),
+                'bounding_box': {
+                    'x': int(x),
+                    'y': int(y),
+                    'width': int(w),
+                    'height': int(h)
+                }
+            }
+
+            # Add hybrid-specific data (corners, source)
+            if hybrid_panel is not None:
+                panel_data['corners'] = [
+                    {'x': float(c[0]), 'y': float(c[1])}
+                    for c in hybrid_panel.corners
+                ]
+                panel_data['source_model'] = hybrid_panel.source
+                panel_data['is_rectangular'] = bool(hybrid_panel.is_rectangular)
+
+                if hybrid_panel.source == 'yolo':
+                    yolo_count += 1
+                else:
+                    seg_count += 1
+
+            panels_data.append(panel_data)
+
+        return jsonify({
+            'success': True,
+            'visualization': viz_base64,
+            'panels': panels_data,
+            'panel_count': len(panels),
+            'detection_method': 'hybrid',
+            'yolo_model': yolo_model,
+            'seg_model': seg_model,
+            'stats': {
+                'yolo_panels': yolo_count,
+                'seg_panels': seg_count
+            }
         })
 
     except Exception as e:
@@ -1332,20 +1709,21 @@ os.makedirs(os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels'), exist_ok=True)
 def save_training_sample():
     """
     Save a training sample with the original image and corrected bounding boxes.
-    Uses OBB (Oriented Bounding Box) format for training.
+    Uses polygon format for training (OBB or Segmentation).
 
     Expects:
         - multipart/form-data with 'image' file (original manga page)
         - 'boxes' field containing JSON array of panel data
+        - 'model_version' field (optional): 'obb' or 'seg_v2' (default: 'obb')
         - Each box should have EITHER:
           - {x, y, width, height} for axis-aligned boxes
-          - {corners: [{x, y}, ...]} for polygons (will save as OBB with 4 corners)
+          - {corners: [{x, y}, ...]} for polygons (will save with 4 corners)
 
     Saves:
-        - Image to training_data/obb/images/
-        - OBB labels to training_data/obb/labels/
+        - Image to training_data/{model_version}/images/
+        - Labels to training_data/{model_version}/labels/
 
-    OBB format: class_id x1 y1 x2 y2 x3 y3 x4 y4 (4 corners, normalized 0-1)
+    Label format: class_id x1 y1 x2 y2 x3 y3 x4 y4 (4 corners, normalized 0-1)
     """
     try:
         if 'image' not in request.files:
@@ -1353,6 +1731,9 @@ def save_training_sample():
 
         if 'boxes' not in request.form:
             return jsonify({'error': 'No bounding boxes provided'}), 400
+
+        # Get model version (default to 'obb' for backward compatibility)
+        model_version = request.form.get('model_version', 'obb')
 
         # Read the original image
         image_file = request.files['image']
@@ -1374,8 +1755,8 @@ def save_training_sample():
         label_filename = f"manga_{sample_id}.txt"
 
         # Create OBB directories if they don't exist
-        obb_images_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'images')
-        obb_labels_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels')
+        obb_images_dir = os.path.join(TRAINING_DATA_FOLDER, model_version, 'images')
+        obb_labels_dir = os.path.join(TRAINING_DATA_FOLDER, model_version, 'labels')
         os.makedirs(obb_images_dir, exist_ok=True)
         os.makedirs(obb_labels_dir, exist_ok=True)
 
@@ -1472,39 +1853,59 @@ def save_training_sample():
 @app.route('/api/training_stats', methods=['GET'])
 def get_training_stats():
     """
-    Get statistics about collected OBB training data.
+    Get statistics about collected training data.
+
+    Query params:
+        - model_version: 'obb', 'seg_v2', or 'all' (default: 'all')
     """
     try:
-        obb_images_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'images')
-        obb_labels_dir = os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels')
+        model_version = request.args.get('model_version', 'all')
 
-        # OBB stats
-        obb_image_files = []
-        obb_label_files = []
-        if os.path.exists(obb_images_dir):
-            obb_image_files = [f for f in os.listdir(obb_images_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
-        if os.path.exists(obb_labels_dir):
-            obb_label_files = [f for f in os.listdir(obb_labels_dir) if f.endswith('.txt')]
+        def get_stats_for_version(version):
+            """Get stats for a specific model version"""
+            images_dir = os.path.join(TRAINING_DATA_FOLDER, version, 'images')
+            labels_dir = os.path.join(TRAINING_DATA_FOLDER, version, 'labels')
 
-        # Count OBB panels
-        total_obb_panels = 0
-        for label_file in obb_label_files:
-            with open(os.path.join(obb_labels_dir, label_file), 'r') as f:
-                total_obb_panels += len([line for line in f.readlines() if line.strip()])
+            # Count files
+            image_files = []
+            label_files = []
+            if os.path.exists(images_dir):
+                image_files = [f for f in os.listdir(images_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+            if os.path.exists(labels_dir):
+                label_files = [f for f in os.listdir(labels_dir) if f.endswith('.txt')]
 
-        # Check for existing trained model
-        models_dir = 'models'
-        model_exists = os.path.exists(os.path.join(models_dir, 'manga_panels_obb.pt'))
+            # Count panels
+            total_panels = 0
+            for label_file in label_files:
+                with open(os.path.join(labels_dir, label_file), 'r') as f:
+                    total_panels += len([line for line in f.readlines() if line.strip()])
 
-        return jsonify({
-            'success': True,
-            'total_images': len(obb_image_files),
-            'total_labels': len(obb_label_files),
-            'total_panels': total_obb_panels,
-            'model_exists': model_exists,
-            'model_path': 'models/manga_panels_obb.pt' if model_exists else None,
-            'training_data_path': os.path.abspath(os.path.join(TRAINING_DATA_FOLDER, 'obb'))
-        })
+            # Check for existing trained model
+            model_name = 'manga_panels_obb.pt' if version == 'obb' else f'manga_panels_{version}.pt'
+            model_path = os.path.join('models', model_name)
+            model_exists = os.path.exists(model_path)
+
+            return {
+                'total_images': len(image_files),
+                'total_labels': len(label_files),
+                'total_panels': total_panels,
+                'model_exists': model_exists,
+                'model_path': model_path if model_exists else None,
+                'training_data_path': os.path.abspath(os.path.join(TRAINING_DATA_FOLDER, version))
+            }
+
+        if model_version == 'all':
+            # Return stats for all versions
+            return jsonify({
+                'success': True,
+                'obb': get_stats_for_version('obb'),
+                'seg_v2': get_stats_for_version('seg_v2')
+            })
+        else:
+            # Return stats for specific version
+            stats = get_stats_for_version(model_version)
+            stats['success'] = True
+            return jsonify(stats)
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
