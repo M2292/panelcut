@@ -10,10 +10,15 @@ import sys
 # Model configurations
 MODELS = {
     'manga109_yolo': {
-        # Using a publicly available manga panel detection model
-        # You can replace this URL with your own hosted model
+        # YOLO OBB model for rectangular panel detection
         'url': os.environ.get('MODEL_URL', ''),
         'path': 'models/manga109_yolo.pt',
+        'required': True
+    },
+    'manga_panels_seg_v2': {
+        # Segmentation model for precise panel boundaries
+        'url': os.environ.get('SEG_MODEL_URL', ''),
+        'path': 'models/manga_panels_seg_v2.pt',
         'required': True
     }
 }

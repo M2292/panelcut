@@ -19,8 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Download model during build (hardcoded URL for Cloud Run)
+# Download models during build (hardcoded URLs for Cloud Run)
 ENV MODEL_URL=https://github.com/M2292/panelcut/releases/download/v1.0.0/manga109_yolo.pt
+ENV SEG_MODEL_URL=https://github.com/M2292/panelcut/releases/download/v1.0.0/manga_panels_seg_v2.pt
 RUN python download_models.py
 
 # Create necessary directories
