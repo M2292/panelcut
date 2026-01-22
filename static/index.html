@@ -1037,6 +1037,7 @@
         let spaceKeyDown = false;
         let mousePos = null;
         let lastYoloResult = null;
+        let confirmedRects = new Set();  // Track which rectangles are "locked" for overlap resolution
 
         // Bulk mode state
         let bulkMode = false;
@@ -1356,14 +1357,23 @@
             if (!rect || !rect.corners || rect.corners.length < 3) return;
 
             const corners = rect.corners;
+            const isConfirmed = confirmedRects.has(rect);
             const baseColor = index >= 0 ? rectColors[index % rectColors.length] : '#00FF00';
             const strokeColor = isSelected ? '#FFFFFF' : baseColor;
             const totalScale = scale * zoomLevel;
 
             ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = 3 * totalScale;
+            // Thicker border for confirmed rects
+            ctx.lineWidth = isConfirmed ? 5 * totalScale : 3 * totalScale;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
+
+            // Dashed line for confirmed rects
+            if (isConfirmed) {
+                ctx.setLineDash([10 * totalScale, 5 * totalScale]);
+            } else {
+                ctx.setLineDash([]);
+            }
 
             ctx.beginPath();
             ctx.moveTo(corners[0].x * totalScale, corners[0].y * totalScale);
@@ -1373,7 +1383,9 @@
             ctx.closePath();
             ctx.stroke();
 
-            ctx.fillStyle = baseColor + '30';
+            ctx.setLineDash([]); // Reset dash
+
+            ctx.fillStyle = baseColor + (isConfirmed ? '20' : '30'); // Less transparent for confirmed
             ctx.fill();
 
             // Corner handles if selected
@@ -1506,6 +1518,279 @@
         function addPointToEdge(rect, edgeIdx, pos) {
             if (!rect || edgeIdx < 0 || edgeIdx >= rect.corners.length) return;
             rect.corners.splice(edgeIdx + 1, 0, { x: pos.x, y: pos.y });
+        }
+
+        // =====================================================================
+        // OVERLAP RESOLUTION
+        // =====================================================================
+
+        function lineSegmentsIntersect(p1, p2, p3, p4) {
+            // Check if line segment p1-p2 intersects with p3-p4
+            const x1 = p1.x, y1 = p1.y;
+            const x2 = p2.x, y2 = p2.y;
+            const x3 = p3.x, y3 = p3.y;
+            const x4 = p4.x, y4 = p4.y;
+
+            const denom = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
+            if (Math.abs(denom) < 1e-10) return null; // Parallel or coincident
+
+            const ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / denom;
+            const ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / denom;
+
+            if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
+                return {
+                    x: x1 + ua * (x2 - x1),
+                    y: y1 + ua * (y2 - y1)
+                };
+            }
+            return null;
+        }
+
+        function polygonContainsPoint(poly, point) {
+            // Ray casting algorithm
+            const corners = poly.corners;
+            const n = corners.length;
+            let inside = false;
+
+            for (let i = 0, j = n - 1; i < n; j = i++) {
+                const xi = corners[i].x, yi = corners[i].y;
+                const xj = corners[j].x, yj = corners[j].y;
+                if (((yi > point.y) !== (yj > point.y)) &&
+                    (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        }
+
+        function polygonsOverlap(rect1, rect2) {
+            if (!rect1 || !rect2 || !rect1.corners || !rect2.corners) return false;
+            if (rect1.corners.length < 3 || rect2.corners.length < 3) return false;
+
+            // Check if any corner of rect1 is inside rect2
+            for (const corner of rect1.corners) {
+                if (polygonContainsPoint(rect2, corner)) return true;
+            }
+
+            // Check if any corner of rect2 is inside rect1
+            for (const corner of rect2.corners) {
+                if (polygonContainsPoint(rect1, corner)) return true;
+            }
+
+            // Check if any edges intersect
+            const n1 = rect1.corners.length;
+            const n2 = rect2.corners.length;
+            for (let i = 0; i < n1; i++) {
+                const p1 = rect1.corners[i];
+                const p2 = rect1.corners[(i + 1) % n1];
+                for (let j = 0; j < n2; j++) {
+                    const p3 = rect2.corners[j];
+                    const p4 = rect2.corners[(j + 1) % n2];
+                    if (lineSegmentsIntersect(p1, p2, p3, p4)) return true;
+                }
+            }
+
+            return false;
+        }
+
+        function getPolygonIntersectionPoints(bottomRect, topRect) {
+            // Find all intersection points between the two polygons
+            const intersections = [];
+            const n1 = bottomRect.corners.length;
+            const n2 = topRect.corners.length;
+
+            // Find edge-edge intersections
+            for (let i = 0; i < n1; i++) {
+                const p1 = bottomRect.corners[i];
+                const p2 = bottomRect.corners[(i + 1) % n1];
+
+                for (let j = 0; j < n2; j++) {
+                    const p3 = topRect.corners[j];
+                    const p4 = topRect.corners[(j + 1) % n2];
+
+                    const intersection = lineSegmentsIntersect(p1, p2, p3, p4);
+                    if (intersection) {
+                        intersections.push({
+                            point: intersection,
+                            bottomEdge: i,
+                            topCornerAfter: (j + 1) % n2
+                        });
+                    }
+                }
+            }
+
+            return intersections;
+        }
+
+        function resolveOverlap(bottomRect, topRect) {
+            // Make the bottom box "wrap around" the top box like it's repelling it
+            if (!polygonsOverlap(bottomRect, topRect)) return false;
+
+            const n1 = bottomRect.corners.length;
+            const n2 = topRect.corners.length;
+            const newCorners = [];
+            let addedTopCorners = false;
+
+            // Find ALL intersection points first
+            const allIntersections = [];
+            for (let i = 0; i < n1; i++) {
+                const p1 = bottomRect.corners[i];
+                const p2 = bottomRect.corners[(i + 1) % n1];
+
+                for (let j = 0; j < n2; j++) {
+                    const p3 = topRect.corners[j];
+                    const p4 = topRect.corners[(j + 1) % n2];
+
+                    const intersection = lineSegmentsIntersect(p1, p2, p3, p4);
+                    if (intersection) {
+                        allIntersections.push({
+                            point: intersection,
+                            bottomEdge: i,
+                            topEdge: j,
+                            distOnBottomEdge: Math.sqrt(
+                                (intersection.x - p1.x) ** 2 + (intersection.y - p1.y) ** 2
+                            )
+                        });
+                    }
+                }
+            }
+
+            // If no intersections, skip (island case - user can manually adjust)
+            if (allIntersections.length === 0) {
+                return false;
+            }
+
+            // Sort intersections by bottom edge, then by distance
+            allIntersections.sort((a, b) => {
+                if (a.bottomEdge !== b.bottomEdge) return a.bottomEdge - b.bottomEdge;
+                return a.distOnBottomEdge - b.distOnBottomEdge;
+            });
+
+            // Walk around bottom rect, and when we hit the top rect, trace around it
+            for (let i = 0; i < n1; i++) {
+                const corner = bottomRect.corners[i];
+
+                // Add corner only if it's NOT inside the top rect
+                if (!polygonContainsPoint(topRect, corner)) {
+                    newCorners.push({...corner});
+                }
+
+                // Get intersections on this edge
+                const edgeIntersections = allIntersections.filter(int => int.bottomEdge === i);
+
+                if (edgeIntersections.length > 0 && !addedTopCorners) {
+                    // Add first intersection point
+                    newCorners.push({...edgeIntersections[0].point});
+
+                    // Add top corners that are INSIDE bottom rect
+                    const startTopCorner = (edgeIntersections[0].topEdge + 1) % n2;
+                    for (let j = 0; j < n2; j++) {
+                        const topCornerIdx = (startTopCorner + j) % n2;
+                        const topCorner = topRect.corners[topCornerIdx];
+
+                        // Add this top corner if it's inside the bottom rect
+                        if (polygonContainsPoint(bottomRect, topCorner)) {
+                            newCorners.push({...topCorner});
+                        }
+                    }
+
+                    // Add remaining intersections on this edge
+                    for (let j = 1; j < edgeIntersections.length; j++) {
+                        newCorners.push({...edgeIntersections[j].point});
+                    }
+
+                    addedTopCorners = true;
+                } else if (edgeIntersections.length > 0) {
+                    // Just add remaining intersection points
+                    for (const inter of edgeIntersections) {
+                        newCorners.push({...inter.point});
+                    }
+                }
+            }
+
+            // Update if we modified the shape
+            if (newCorners.length > bottomRect.corners.length) {
+                bottomRect.corners = newCorners;
+                return true;
+            }
+
+            return false;
+        }
+
+        function resolveAllOverlaps() {
+            // Process all rectangles to resolve overlaps
+            // Later rectangles in the array are considered "on top"
+            let resolved = false;
+
+            for (let i = 0; i < rectangles.length - 1; i++) {
+                for (let j = i + 1; j < rectangles.length; j++) {
+                    // j is on top of i, so modify i to wrap around j
+                    if (resolveOverlap(rectangles[i], rectangles[j])) {
+                        resolved = true;
+                    }
+                }
+            }
+
+            return resolved;
+        }
+
+        function confirmRectPosition() {
+            // Confirm the selected rectangle's position and make it wrap around other boxes
+            if (!selectedRect) return;
+
+            saveHistory();
+
+            // Mark this rect as confirmed
+            confirmedRects.add(selectedRect);
+
+            // Apply overlap resolution: make all OTHER rectangles wrap around this confirmed one
+            let resolved = false;
+            for (let i = 0; i < rectangles.length; i++) {
+                const rect = rectangles[i];
+                if (rect === selectedRect) continue; // Skip the confirmed rect itself
+
+                // Make other boxes wrap around the selected (confirmed) box
+                if (resolveOverlap(rect, selectedRect)) {
+                    resolved = true;
+                }
+            }
+
+            if (resolved) {
+                redraw();
+                // Show feedback
+                const toast = document.createElement('div');
+                toast.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #4caf50; color: white; padding: 12px 20px; border-radius: 8px; z-index: 10000; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
+                toast.textContent = 'Position confirmed - overlapping boxes adjusted';
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 2000);
+            }
+        }
+
+        function autoConfirmFullyCoveredBoxes() {
+            // Automatically apply overlap resolution to all overlapping boxes on detection
+            // Process from bottom to top (later boxes in array are on top)
+            let resolved = false;
+            let resolutionCount = 0;
+
+            // For each pair of overlapping rectangles, make the bottom one wrap around the top one
+            for (let i = 0; i < rectangles.length; i++) {
+                for (let j = i + 1; j < rectangles.length; j++) {
+                    // Check if they overlap
+                    if (polygonsOverlap(rectangles[i], rectangles[j])) {
+                        // Make rectangle i (bottom) wrap around rectangle j (top)
+                        if (resolveOverlap(rectangles[i], rectangles[j])) {
+                            resolved = true;
+                            resolutionCount++;
+                        }
+                    }
+                }
+            }
+
+            if (resolved) {
+                console.log(`[Auto-Detect] Applied overlap resolution to ${resolutionCount} box pair(s)`);
+            }
+
+            return resolved;
         }
 
         // Zoom with mouse wheel
@@ -1930,6 +2215,12 @@
             if (currentTool === 'rect' && isDrawing) {
                 handleRectMouseUp();
             }
+
+            // Overlap resolution disabled during movement - use manual confirmation instead
+            // if (isDraggingRect && rectangles.length > 1) {
+            //     resolveAllOverlaps();
+            // }
+
             isDrawing = false;
             draggedCorner = null;
             cornerDragStartPos = null;
@@ -1948,6 +2239,12 @@
                 if (width > minSize && height > minSize) {
                     rectangles.push(currentRect);
                     selectedRect = currentRect;
+
+                    // Overlap resolution disabled during drawing - use manual confirmation instead
+                    // if (rectangles.length > 1) {
+                    //     resolveAllOverlaps();
+                    // }
+
                     updateExtractButton();
                     showEditTools();
                 }
@@ -1985,6 +2282,12 @@
                     if (width > minSize && height > minSize) {
                         rectangles.push(currentRect);
                         selectedRect = currentRect;
+
+                        // Overlap resolution disabled during drawing - use manual confirmation instead
+                        // if (rectangles.length > 1) {
+                        //     resolveAllOverlaps();
+                        // }
+
                         updateExtractButton();
                         showEditTools();
                     }
@@ -1992,6 +2295,12 @@
                     rectStartPos = null;
                     redraw();
                 }
+
+                // Overlap resolution disabled during movement - use manual confirmation instead
+                // if (isDraggingRect && rectangles.length > 1) {
+                //     resolveAllOverlaps();
+                // }
+
                 isDrawing = false;
                 draggedCorner = null;
                 cornerDragStartPos = null;
@@ -2090,6 +2399,7 @@
 
                 const state = history.pop();
                 rectangles = state.rectangles || [];
+                confirmedRects.clear(); // Clear confirmed status on undo
                 selectedRect = null;
                 currentRect = null;
                 updateExtractButton();
@@ -2106,6 +2416,7 @@
 
                 const state = redoHistory.pop();
                 rectangles = state.rectangles || [];
+                confirmedRects.clear(); // Clear confirmed status on redo
                 selectedRect = null;
                 currentRect = null;
                 updateExtractButton();
@@ -2133,6 +2444,10 @@
                 if (!e.ctrlKey) setActiveTool('rect');
             } else if (e.key === 'd' || e.key === 'D') {
                 setActiveTool('eraser');
+            } else if (e.key === 'Enter' && selectedRect) {
+                // Confirm selected rectangle and apply overlap resolution
+                e.preventDefault();
+                confirmRectPosition();
             } else if (e.key === 'Delete' || e.key === 'Backspace') {
                 if (selectedRect && currentTool === 'rect') {
                     if (hoveredCorner !== null && selectedRect.corners.length > 3) {
@@ -2197,6 +2512,7 @@
         clearBtn.addEventListener('click', () => {
             saveHistory();
             rectangles = [];
+            confirmedRects.clear(); // Clear confirmed status
             currentRect = null;
             selectedRect = null;
             updateExtractButton();
@@ -2854,6 +3170,11 @@
 
                 if (rect) rectangles.push(rect);
             });
+
+            // Auto-confirm boxes that are fully covered/inside other boxes
+            if (rectangles.length > 1) {
+                autoConfirmFullyCoveredBoxes();
+            }
 
             setActiveTool('rect');
             updateExtractButton();

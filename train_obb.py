@@ -98,12 +98,13 @@ def main():
     print('=' * 60)
 
     # Train
-    model = YOLO('yolov8n-obb.pt')
+    # Options: yolov8n-obb.pt (fastest), yolov8s-obb.pt (balanced), yolov8m-obb.pt (accurate)
+    model = YOLO('yolov8s-obb.pt')  # Small model - better accuracy than nano
     model.train(
         data=dataset_yaml,
         epochs=50,
         imgsz=640,
-        patience=10,  # Stop early if no improvement for 10 epochs
+        patience=15,  # Stop early if no improvement for 15 epochs
         project=os.path.join(obb_data_folder, 'runs'),
         name='manga_panels_obb',
         exist_ok=True
@@ -112,8 +113,11 @@ def main():
     # Copy best model - search multiple possible locations
     # YOLO sometimes nests the output path in unexpected ways
     possible_paths = [
-        os.path.join(obb_data_folder, 'runs', 'manga_panels_obb', 'weights', 'best.pt'),
+        # Actual nested location that YOLO creates
         os.path.join('runs', 'obb', obb_data_folder, 'runs', 'manga_panels_obb', 'weights', 'best.pt'),
+        # Expected location based on project parameter
+        os.path.join(obb_data_folder, 'runs', 'manga_panels_obb', 'weights', 'best.pt'),
+        # Standard YOLO runs location
         os.path.join('runs', 'obb', 'manga_panels_obb', 'weights', 'best.pt'),
     ]
 

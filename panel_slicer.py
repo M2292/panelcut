@@ -33,6 +33,8 @@ class Panel:
     area: float
     index: int
     confidence: float = 1.0  # Detection confidence (1.0 for CV, varies for YOLO)
+    class_id: int = 2  # Default: 2 (frame/panel). 0=body, 1=face, 2=frame, 3=text
+    class_name: str = 'panel'  # Human-readable class name
 
 
 def extract_panel_with_mask(image: np.ndarray, contour: np.ndarray,
@@ -189,18 +191,19 @@ def sort_panels_reading_order(panels: List[Panel], rtl: bool = True) -> List[Pan
 
         rows.append(current_row)
 
-    # Sort rows by their top position
-    rows.sort(key=lambda row: min(p['top'] for p in row))
+    # Sort rows by their average center Y position (more robust than top edge)
+    rows.sort(key=lambda row: sum(p['cy'] for p in row) / len(row))
 
-    # Within each row, sort by horizontal position
+    # Within each row, sort by horizontal position using CENTER
+    # This is more robust to small bbox differences between YOLO and OBB
     sorted_panels = []
     for row in rows:
         if rtl:
-            # Right-to-left: sort by right edge descending
-            row.sort(key=lambda p: -p['right'])
+            # Right-to-left: sort by center X descending
+            row.sort(key=lambda p: -p['cx'])
         else:
-            # Left-to-right: sort by left edge ascending
-            row.sort(key=lambda p: p['left'])
+            # Left-to-right: sort by center X ascending
+            row.sort(key=lambda p: p['cx'])
         sorted_panels.extend(row)
 
     # Assign final indices
@@ -580,6 +583,7 @@ def slice_manga_page_yolo(
     rtl: bool = True,
     use_mask_extraction: bool = True,
     min_area: int = 10000,
+    panel_class_ids: Optional[List[int]] = None,
     debug: bool = False
 ) -> Tuple[List[Panel], np.ndarray, dict]:
     """
@@ -592,6 +596,8 @@ def slice_manga_page_yolo(
         rtl: Right-to-left reading order
         use_mask_extraction: Use mask-based extraction
         min_area: Minimum panel area
+        panel_class_ids: Which classes to detect (default: [2] for frames/panels)
+                        Class 0=body, 1=face, 2=frame, 3=text
         debug: Generate debug images
 
     Returns:
@@ -610,7 +616,12 @@ def slice_manga_page_yolo(
 
     try:
         detector = YOLODetector(model_path, confidence=confidence)
-        yolo_panels = detector.detect_panels_only(image)
+
+        # Default to class 2 (frame/panels) if not specified
+        if panel_class_ids is None:
+            panel_class_ids = [2]
+
+        yolo_panels = detector.detect_panels_only(image, panel_class_ids=panel_class_ids)
 
         panels = []
         contours_for_mask = []
@@ -632,7 +643,9 @@ def slice_manga_page_yolo(
                 bounding_box=(x1, y1, x2 - x1, y2 - y1),
                 area=area,
                 index=i,
-                confidence=yp.confidence
+                confidence=yp.confidence,
+                class_id=yp.class_id,
+                class_name=yp.class_name
             ))
             contours_for_mask.append(yp.contour)
 
@@ -705,6 +718,7 @@ def slice_manga_page_hybrid(
     tolerance: int = 30,
     yolo_model: Optional[str] = None,
     yolo_confidence: float = 0.5,
+    yolo_classes: Optional[List[int]] = None,
     prefer_yolo: bool = True,
     fallback_on_failure: bool = True,
     min_panels_threshold: int = 2,
@@ -727,6 +741,8 @@ def slice_manga_page_hybrid(
         tolerance: Color tolerance for gutter detection
         yolo_model: Path to YOLO model (None to skip YOLO)
         yolo_confidence: YOLO confidence threshold
+        yolo_classes: Which YOLO classes to detect (default: [2] for frames)
+                     Class 0=body, 1=face, 2=frame, 3=text
         prefer_yolo: Try YOLO first if available
         fallback_on_failure: Fall back to CV if YOLO fails
         min_panels_threshold: Minimum panels for YOLO result to be accepted
@@ -758,7 +774,8 @@ def slice_manga_page_hybrid(
                 confidence=yolo_confidence,
                 rtl=rtl,
                 use_mask_extraction=use_mask_extraction,
-                min_area=min_area
+                min_area=min_area,
+                panel_class_ids=yolo_classes
             )
 
             if len(yolo_panels) >= min_panels_threshold:

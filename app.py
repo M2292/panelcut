@@ -699,14 +699,19 @@ def _save_training_data_silent(original_image_base64: str, boxes: list, model_ve
     image_filename = f"manga_{timestamp}_{sample_id}.png"
     label_filename = f"manga_{timestamp}_{sample_id}.txt"
 
-    # Convert boxes to OBB format
+    # Convert boxes to polygon format (OBB or Segmentation)
     obb_labels = []
     class_id = 0  # Single class: "panel"
 
     for box in boxes:
         # Check if box has corners (polygon) or just x,y,width,height
-        if 'corners' in box and len(box['corners']) >= 4:
-            corners = box['corners'][:4]
+        if 'corners' in box and len(box['corners']) >= 3:
+            corners = box['corners']
+
+            # For OBB: limit to 4 corners (rotated rectangle)
+            # For seg_v2: use ALL corners (arbitrary polygon)
+            if model_version == 'obb' and len(corners) > 4:
+                corners = corners[:4]
         else:
             # Standard bbox format - create 4 corners
             x = float(box.get('x', 0))
@@ -720,7 +725,9 @@ def _save_training_data_silent(original_image_base64: str, boxes: list, model_ve
                 {'x': x, 'y': y + h}
             ]
 
-        # Normalize and format for OBB
+        # Normalize and format for training
+        # OBB: exactly 4 corners (rotated rectangle)
+        # seg_v2: any number of corners (arbitrary polygon)
         obb_parts = [str(class_id)]
         for corner in corners:
             nx = max(0, min(1, corner['x'] / img_width))
