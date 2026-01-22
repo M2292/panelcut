@@ -929,6 +929,10 @@
             <div class="sidebar-actions hidden" id="sidebarActions">
                 <button class="btn btn-small btn-secondary" id="selectAllBtn">All</button>
                 <button class="btn btn-small btn-secondary" id="deselectAllBtn">None</button>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin-left: auto;">
+                    <input type="checkbox" id="addBorderToggle" style="cursor: pointer;">
+                    <span style="font-size: 0.85rem;">Add Border</span>
+                </label>
             </div>
             <div class="sidebar-content" id="sidebarContent">
                 <div class="sidebar-empty" id="sidebarEmpty">
@@ -1622,17 +1626,80 @@
             return intersections;
         }
 
+        function isClockwise(corners) {
+            // Calculate signed area using shoelace formula
+            // Positive = clockwise, Negative = counter-clockwise
+            if (corners.length < 3) return true;
+
+            let sum = 0;
+            for (let i = 0; i < corners.length; i++) {
+                const j = (i + 1) % corners.length;
+                sum += (corners[j].x - corners[i].x) * (corners[j].y + corners[i].y);
+            }
+            return sum > 0;
+        }
+
+        function ensureClockwise(rect) {
+            // Ensure rectangle corners are in clockwise order
+            if (!rect || !rect.corners || rect.corners.length < 3) return;
+
+            const wasClockwise = isClockwise(rect.corners);
+            if (!wasClockwise) {
+                rect.corners.reverse();
+                console.log(`[Ordering] Rectangle corners were counter-clockwise, reversed to clockwise`);
+            }
+        }
+
+        function logRectCorners(rect, label) {
+            // Helper to log rectangle corner positions
+            const rectIndex = rectangles.indexOf(rect);
+            console.log(`[${label}] Rectangle #${rectIndex >= 0 ? rectIndex + 1 : 'new'} - ${rect.corners.length} corners:`);
+            rect.corners.forEach((corner, i) => {
+                console.log(`  Corner ${i}: (${Math.round(corner.x)}, ${Math.round(corner.y)})`);
+            });
+        }
+
         function resolveOverlap(bottomRect, topRect) {
             // Make the bottom box "wrap around" the top box like it's repelling it
             if (!polygonsOverlap(bottomRect, topRect)) return false;
 
+            const bottomIdx = rectangles.indexOf(bottomRect);
+            const topIdx = rectangles.indexOf(topRect);
+            console.log(`\n[Overlap Resolution] Starting: Bottom rect #${bottomIdx + 1} wrapping around Top rect #${topIdx + 1}`);
+
+            // Ensure both rectangles have clockwise ordering
+            ensureClockwise(bottomRect);
+            ensureClockwise(topRect);
+
+            logRectCorners(bottomRect, 'BEFORE - Bottom');
+            logRectCorners(topRect, 'BEFORE - Top');
+
+            // Check if bottom rect is COMPLETELY inside top rect or just partially overlapping
+            // If partial overlap (some corners inside, some outside), skip complex wrapping
             const n1 = bottomRect.corners.length;
             const n2 = topRect.corners.length;
+
+            let cornersInside = 0;
+            let cornersOutside = 0;
+            for (const corner of bottomRect.corners) {
+                if (polygonContainsPoint(topRect, corner)) {
+                    cornersInside++;
+                } else {
+                    cornersOutside++;
+                }
+            }
+
+            if (cornersInside > 0 && cornersOutside > 0) {
+                console.log(`[SKIP] Partial overlap detected (${cornersInside} corners inside, ${cornersOutside} outside)`);
+                console.log('[SKIP] Only wrapping around fully-contained panels, not partial overlaps\n');
+                return false;  // Don't modify for partial overlaps
+            }
+
             const newCorners = [];
-            let addedTopCorners = false;
 
             // Find ALL intersection points first
             const allIntersections = [];
+            console.log('[Finding Intersections...]');
             for (let i = 0; i < n1; i++) {
                 const p1 = bottomRect.corners[i];
                 const p2 = bottomRect.corners[(i + 1) % n1];
@@ -1657,8 +1724,14 @@
 
             // If no intersections, skip (island case - user can manually adjust)
             if (allIntersections.length === 0) {
+                console.log('[No intersections found - skipping]');
                 return false;
             }
+
+            console.log(`[Found ${allIntersections.length} intersection(s)]`);
+            allIntersections.forEach((inter, idx) => {
+                console.log(`  Intersection ${idx}: on bottom edge ${inter.bottomEdge}, top edge ${inter.topEdge} at (${Math.round(inter.point.x)}, ${Math.round(inter.point.y)})`);
+            });
 
             // Sort intersections by bottom edge, then by distance
             allIntersections.sort((a, b) => {
@@ -1666,54 +1739,150 @@
                 return a.distOnBottomEdge - b.distOnBottomEdge;
             });
 
-            // Walk around bottom rect, and when we hit the top rect, trace around it
+            let addedTopCorners = false;
+            const addedIntersectionIndices = new Set();  // Track which intersections we've already added
+            console.log('\n[Building new perimeter...]');
+
+            // Walk around the bottom rect's perimeter
             for (let i = 0; i < n1; i++) {
                 const corner = bottomRect.corners[i];
 
                 // Add corner only if it's NOT inside the top rect
                 if (!polygonContainsPoint(topRect, corner)) {
                     newCorners.push({...corner});
+                    console.log(`  Edge ${i}: Added bottom corner ${i} (outside top rect)`);
+                } else {
+                    console.log(`  Edge ${i}: Skipped bottom corner ${i} (inside top rect)`);
                 }
 
                 // Get intersections on this edge
                 const edgeIntersections = allIntersections.filter(int => int.bottomEdge === i);
 
                 if (edgeIntersections.length > 0 && !addedTopCorners) {
-                    // Add first intersection point
-                    newCorners.push({...edgeIntersections[0].point});
+                    console.log(`  Edge ${i}: Found ${edgeIntersections.length} intersection(s) - inserting top rect segment`);
 
-                    // Add top corners that are INSIDE bottom rect
-                    const startTopCorner = (edgeIntersections[0].topEdge + 1) % n2;
-                    for (let j = 0; j < n2; j++) {
-                        const topCornerIdx = (startTopCorner + j) % n2;
-                        const topCorner = topRect.corners[topCornerIdx];
+                    // Use the first and last intersections from the SORTED array
+                    // This ensures we trace the segment in the correct order
+                    const firstTopEdge = allIntersections[0].topEdge;
+                    const lastTopEdge = allIntersections[allIntersections.length - 1].topEdge;
+                    const startTopCorner = (firstTopEdge + 1) % n2;
+                    const endTopCorner = (lastTopEdge + 1) % n2;
 
-                        // Add this top corner if it's inside the bottom rect
-                        if (polygonContainsPoint(bottomRect, topCorner)) {
+                    console.log(`    → Tracing from top edge ${firstTopEdge} to edge ${lastTopEdge}`);
+
+                    // Determine path: short way (partial edge) or long way (full perimeter)
+                    const shortPathLen = (endTopCorner - startTopCorner + n2) % n2;
+                    const needsFullPerimeter = shortPathLen < n2 - 1;
+
+                    if (needsFullPerimeter) {
+                        console.log(`    → Need FULL perimeter (top rect is inside bottom rect, creates interior overlap)`);
+                        console.log(`    → Going the LONG way around (over the top instead of along bottom)`);
+
+                        // Add first intersection to connect smoothly
+                        newCorners.push({...allIntersections[0].point});
+                        addedIntersectionIndices.add(0);  // Mark as added
+                        console.log(`    → Added first intersection at (${Math.round(allIntersections[0].point.x)}, ${Math.round(allIntersections[0].point.y)})`);
+
+                        // Walk BACKWARDS (counter-clockwise) from startTopCorner-1 to endTopCorner (inclusive)
+                        // This goes "over the top" taking the long path
+                        let currentCorner = (startTopCorner - 1 + n2) % n2;
+                        let addedCount = 0;
+
+                        while (addedCount < n2) {
+                            const topCorner = topRect.corners[currentCorner];
                             newCorners.push({...topCorner});
-                        }
-                    }
+                            console.log(`      → Added top corner ${currentCorner} at (${Math.round(topCorner.x)}, ${Math.round(topCorner.y)})`);
+                            addedCount++;
 
-                    // Add remaining intersections on this edge
-                    for (let j = 1; j < edgeIntersections.length; j++) {
-                        newCorners.push({...edgeIntersections[j].point});
+                            // Stop after adding endTopCorner
+                            if (currentCorner === endTopCorner) break;
+                            currentCorner = (currentCorner - 1 + n2) % n2;  // Go backwards
+                        }
+                        console.log(`    → Added ${addedCount} corner(s) taking long path`);
+
+                        // Add last intersection to connect back
+                        newCorners.push({...allIntersections[allIntersections.length - 1].point});
+                        addedIntersectionIndices.add(allIntersections.length - 1);  // Mark as added
+                        console.log(`    → Added last intersection at (${Math.round(allIntersections[allIntersections.length - 1].point.x)}, ${Math.round(allIntersections[allIntersections.length - 1].point.y)})`);
+
+                    } else {
+                        console.log(`    → Walking corners ${startTopCorner} to ${endTopCorner} (partial edge)`);
+
+                        // Add first intersection point
+                        newCorners.push({...allIntersections[0].point});
+                        addedIntersectionIndices.add(0);  // Mark as added
+                        console.log(`    → Added first intersection at (${Math.round(allIntersections[0].point.x)}, ${Math.round(allIntersections[0].point.y)})`);
+
+                        // Walk short path
+                        let currentCorner = startTopCorner;
+                        let steps = 0;
+                        let addedCount = 0;
+
+                        while (currentCorner !== endTopCorner && steps < n2) {
+                            const topCorner = topRect.corners[currentCorner];
+                            newCorners.push({...topCorner});
+                            console.log(`      → Added top corner ${currentCorner} at (${Math.round(topCorner.x)}, ${Math.round(topCorner.y)})`);
+                            addedCount++;
+                            currentCorner = (currentCorner + 1) % n2;
+                            steps++;
+                        }
+                        console.log(`    → Added ${addedCount} corner(s) from top rect`);
+
+                        // Add last intersection point
+                        newCorners.push({...allIntersections[allIntersections.length - 1].point});
+                        addedIntersectionIndices.add(allIntersections.length - 1);  // Mark as added
+                        console.log(`    → Added last intersection at (${Math.round(allIntersections[allIntersections.length - 1].point.x)}, ${Math.round(allIntersections[allIntersections.length - 1].point.y)})`);
                     }
 
                     addedTopCorners = true;
                 } else if (edgeIntersections.length > 0) {
-                    // Just add remaining intersection points
+                    console.log(`  Edge ${i}: Adding ${edgeIntersections.length} remaining intersection(s)`);
+                    // Add remaining intersection points (skip if already added)
                     for (const inter of edgeIntersections) {
-                        newCorners.push({...inter.point});
+                        const interIndex = allIntersections.indexOf(inter);
+                        if (!addedIntersectionIndices.has(interIndex)) {
+                            newCorners.push({...inter.point});
+                            addedIntersectionIndices.add(interIndex);
+                            console.log(`    → Added intersection at (${Math.round(inter.point.x)}, ${Math.round(inter.point.y)})`);
+                        } else {
+                            console.log(`    → Skipped intersection at (${Math.round(inter.point.x)}, ${Math.round(inter.point.y)}) - already added`);
+                        }
                     }
                 }
             }
 
             // Update if we modified the shape
             if (newCorners.length > bottomRect.corners.length) {
-                bottomRect.corners = newCorners;
-                return true;
+                console.log(`\n[Filtering] Built ${newCorners.length} corners, removing duplicates...`);
+
+                // Remove consecutive duplicate points
+                const filtered = [];
+                let removedCount = 0;
+                for (let i = 0; i < newCorners.length; i++) {
+                    const curr = newCorners[i];
+                    const next = newCorners[(i + 1) % newCorners.length];
+                    const dist = Math.sqrt((curr.x - next.x) ** 2 + (curr.y - next.y) ** 2);
+                    if (dist > 5.0) {  // Only keep if points are far enough apart (5px threshold)
+                        filtered.push(curr);
+                    } else {
+                        removedCount++;
+                        console.log(`    → Removed near-duplicate: (${Math.round(curr.x)}, ${Math.round(curr.y)}) - only ${dist.toFixed(1)}px from next point`);
+                    }
+                }
+                console.log(`[Filtering] Removed ${removedCount} duplicate point(s), final count: ${filtered.length}`);
+
+                if (filtered.length >= 3) {
+                    bottomRect.corners = filtered;
+                    ensureClockwise(bottomRect);  // Ensure result is still clockwise
+
+                    console.log(`\n[RESULT] Successfully modified rectangle:`);
+                    logRectCorners(bottomRect, 'AFTER - Bottom');
+                    console.log(`[Overlap Resolution] Complete!\n`);
+                    return true;
+                }
             }
 
+            console.log('[Overlap Resolution] No modification needed\n');
             return false;
         }
 
@@ -1738,13 +1907,22 @@
             // Confirm the selected rectangle's position and make it wrap around other boxes
             if (!selectedRect) return;
 
+            const selectedIdx = rectangles.indexOf(selectedRect);
+            console.log(`\n${'='.repeat(80)}`);
+            console.log(`[ENTER KEY PRESSED] Confirming rectangle #${selectedIdx + 1} position`);
+            console.log(`${'='.repeat(80)}`);
+            logRectCorners(selectedRect, 'CONFIRMED RECT');
+
             saveHistory();
 
             // Mark this rect as confirmed
             confirmedRects.add(selectedRect);
 
+            console.log(`\n[Making other rectangles wrap around confirmed rect #${selectedIdx + 1}...]`);
+
             // Apply overlap resolution: make all OTHER rectangles wrap around this confirmed one
             let resolved = false;
+            let modifiedCount = 0;
             for (let i = 0; i < rectangles.length; i++) {
                 const rect = rectangles[i];
                 if (rect === selectedRect) continue; // Skip the confirmed rect itself
@@ -1752,10 +1930,13 @@
                 // Make other boxes wrap around the selected (confirmed) box
                 if (resolveOverlap(rect, selectedRect)) {
                     resolved = true;
+                    modifiedCount++;
                 }
             }
 
             if (resolved) {
+                console.log(`\n[Summary] Modified ${modifiedCount} rectangle(s) to wrap around confirmed rect #${selectedIdx + 1}`);
+                console.log(`${'='.repeat(80)}\n`);
                 redraw();
                 // Show feedback
                 const toast = document.createElement('div');
@@ -2238,6 +2419,7 @@
                 const height = Math.abs(currentRect.corners[2].y - currentRect.corners[0].y);
                 if (width > minSize && height > minSize) {
                     rectangles.push(currentRect);
+                    ensureClockwise(currentRect);  // Enforce clockwise ordering
                     selectedRect = currentRect;
 
                     // Overlap resolution disabled during drawing - use manual confirmation instead
@@ -2281,6 +2463,7 @@
                     const height = Math.abs(currentRect.corners[2].y - currentRect.corners[0].y);
                     if (width > minSize && height > minSize) {
                         rectangles.push(currentRect);
+                        ensureClockwise(currentRect);  // Enforce clockwise ordering
                         selectedRect = currentRect;
 
                         // Overlap resolution disabled during drawing - use manual confirmation instead
@@ -3168,13 +3351,16 @@
                     };
                 }
 
-                if (rect) rectangles.push(rect);
+                if (rect) {
+                    rectangles.push(rect);
+                    ensureClockwise(rect);  // Enforce clockwise ordering
+                }
             });
 
-            // Auto-confirm boxes that are fully covered/inside other boxes
-            if (rectangles.length > 1) {
-                autoConfirmFullyCoveredBoxes();
-            }
+            // Auto-confirm disabled - use manual Enter key confirmation instead
+            // if (rectangles.length > 1) {
+            //     autoConfirmFullyCoveredBoxes();
+            // }
 
             setActiveTool('rect');
             updateExtractButton();
@@ -3222,7 +3408,8 @@
                 formData.append('image', imageBlob);
                 formData.append('mask', maskBlob);
 
-                const response = await fetch(`/api/slice_with_mask?min_area=10000&rtl=${rtlToggle.checked}`, {
+                const addBorder = document.getElementById('addBorderToggle').checked;
+                const response = await fetch(`/api/slice_with_mask?min_area=10000&rtl=${rtlToggle.checked}&add_border=${addBorder}`, {
                     method: 'POST',
                     body: formData
                 });
@@ -3478,10 +3665,11 @@
 
                     // Call bulk download API
                     try {
+                        const addBorder = document.getElementById('addBorderToggle')?.checked || false;
                         response = await fetch('/api/download_bulk', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ pages: pagePanels })
+                            body: JSON.stringify({ pages: pagePanels, add_border: addBorder })
                         });
 
                         // Check if response is ok
@@ -3551,6 +3739,10 @@
 
                     // Build request body with training data included
                     const requestBody = { panels: panelsToDownload };
+
+                    // Include border parameter
+                    const addBorder = document.getElementById('addBorderToggle')?.checked || false;
+                    requestBody.add_border = addBorder;
 
                     // Include original image and boxes for silent training data collection
                     if (currentImageData && lastExtractedRectangles && lastExtractedRectangles.length > 0) {
