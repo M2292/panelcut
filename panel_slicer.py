@@ -71,11 +71,19 @@ def extract_panel_with_mask(image: np.ndarray, contour: np.ndarray,
         # Output BGRA with transparent background
         if len(image.shape) == 3:
             output = np.zeros((h, w, 4), dtype=np.uint8)
+            # Set background to white with alpha=0 (appears white if transparency lost)
+            output[:, :, :3] = 255  # White background
+            output[:, :, 3] = 0     # Fully transparent
+            # Set panel pixels
             output[cropped_mask > 0, :3] = cropped_image[cropped_mask > 0]
             output[cropped_mask > 0, 3] = 255  # Alpha channel - opaque where panel exists
         else:
             # Grayscale to BGRA
             output = np.zeros((h, w, 4), dtype=np.uint8)
+            # Set background to white with alpha=0
+            output[:, :, :3] = 255  # White background
+            output[:, :, 3] = 0     # Fully transparent
+            # Set panel pixels
             output[cropped_mask > 0, 0] = cropped_image[cropped_mask > 0]
             output[cropped_mask > 0, 1] = cropped_image[cropped_mask > 0]
             output[cropped_mask > 0, 2] = cropped_image[cropped_mask > 0]

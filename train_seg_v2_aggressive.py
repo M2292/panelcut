@@ -1,17 +1,30 @@
 """
-Train Segmentation v2 Model
+Train Segmentation v2 Model - AGGRESSIVE MODE
+
+This is the AGGRESSIVE training variant with 10x higher learning rate (0.01 vs 0.001).
+Designed for datasets with 100+ user-corrected images where faster convergence and
+more aggressive exploration of the solution space is beneficial.
+
+DIFFERENCES FROM STANDARD TRAINING:
+- Higher initial learning rate (0.01 vs 0.001) - YOLO default
+- More aggressive weight updates = faster convergence
+- Better exploration of solution space
+- May see drastic improvements even in later epochs
+- Can escape local minima more effectively
+
+WHEN TO USE:
+- You have 100+ training images
+- Standard training feels too slow/gradual
+- You want to explore the solution space more aggressively
+- You're willing to trade stability for potential breakthroughs
 
 This script trains a YOLOv8-seg (instance segmentation) model ONLY on user-corrected panel data.
 Unlike OBB, segmentation can detect arbitrary quadrilaterals with independent corner positions.
 
-Key differences from OBB:
-- OBB: Detects rotated rectangles (4 corners with single angle)
-- Segmentation: Detects arbitrary polygons (each corner can be positioned independently)
-
 Training data comes exclusively from the download zip feature where users
 manually correct panel boxes.
 
-Run via train_seg_v2_model.bat or directly: python train_seg_v2.py
+Run via train_seg_v2_aggressive.bat or directly: python train_seg_v2_aggressive.py
 """
 
 import os
@@ -188,6 +201,21 @@ def main():
         print(f"\nCurrent training data: {seg_images_dir}")
         return False
 
+    # Recommend standard training for small datasets
+    if len(image_files) < 100:
+        print()
+        print('!' * 60)
+        print('WARNING: Small dataset detected!')
+        print('!' * 60)
+        print(f'You have {len(image_files)} images. Aggressive training works best with 100+ images.')
+        print('Consider using the standard training script (train_seg_v2_model.bat) instead.')
+        print()
+        choice = input('Continue with aggressive training anyway? (y/n): ').strip().lower()
+        if choice != 'y':
+            print('Exiting. Use train_seg_v2_model.bat for standard training.')
+            return False
+        print()
+
     # Split 90/10 (more training data, less validation)
     random.shuffle(image_files)
     split_idx = max(1, int(len(image_files) * 0.9))
@@ -295,10 +323,15 @@ def main():
         use_incremental = False
 
     print('=' * 60)
-    print('Starting Segmentation v2 training...')
+    print('Starting Segmentation v2 training - AGGRESSIVE MODE')
     print('This model is trained ONLY on user-corrected panel data')
     print('Segmentation can detect arbitrary quadrilaterals (not just rotated rectangles)')
-    print(f'Patience: {_patience} epochs (will stop early if no improvement)')
+    print()
+    print('AGGRESSIVE SETTINGS:')
+    print('  • Learning rate: 0.01 (10x higher than standard)')
+    print('  • More aggressive weight updates')
+    print('  • Better exploration of solution space')
+    print(f'  • Patience: {_patience} epochs (will stop early if no improvement)')
     print('=' * 60)
     print()
 
@@ -336,7 +369,7 @@ def main():
         exist_ok=True,
         # Tighter training for precise bounding boxes
         box=10.0,  # Increase box loss weight (default 7.5) for tighter boxes
-        lr0=0.001,  # Lower initial learning rate for finer convergence
+        lr0=0.01,  # AGGRESSIVE: Standard YOLO learning rate (10x higher than conservative)
         lrf=0.01,  # Final learning rate factor
         # Augmentation for better generalization
         degrees=5.0,  # Small rotation augmentation
@@ -354,11 +387,13 @@ def main():
 
     if _model_copied:
         print('=' * 60)
-        print('Training complete!')
+        print('AGGRESSIVE TRAINING COMPLETE!')
         print('Model saved to: models/manga_panels_seg_v2.pt')
         print()
         print('This Segmentation v2 model can detect arbitrary quadrilaterals')
         print('with each corner positioned independently (not just rotated rectangles).')
+        print()
+        print('Trained with aggressive settings (lr0=0.01) for faster convergence.')
         print('=' * 60)
         return True
     else:

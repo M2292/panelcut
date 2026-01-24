@@ -56,9 +56,19 @@ def main():
     for d in [train_img_dir, train_lbl_dir, val_img_dir, val_lbl_dir]:
         os.makedirs(d, exist_ok=True)
 
-    print("Copying files to train/val directories...")
+    print("Linking files to train/val directories (using symlinks to save disk space)...")
 
-    # Copy files
+    def create_link(src, dst):
+        """Create a symlink, or copy if symlinks not supported."""
+        if os.path.exists(dst):
+            os.remove(dst)
+        try:
+            os.symlink(os.path.abspath(src), dst)
+        except OSError:
+            # Symlinks may require admin on Windows, fall back to copy
+            shutil.copy2(src, dst)
+
+    # Link files (no duplication)
     for img in train_images:
         src = os.path.join(obb_images_dir, img)
         dst = os.path.join(train_img_dir, img)
@@ -66,9 +76,9 @@ def main():
         src_lbl = os.path.join(obb_labels_dir, lbl)
         dst_lbl = os.path.join(train_lbl_dir, lbl)
         if os.path.exists(src):
-            shutil.copy2(src, dst)
+            create_link(src, dst)
         if os.path.exists(src_lbl):
-            shutil.copy2(src_lbl, dst_lbl)
+            create_link(src_lbl, dst_lbl)
 
     for img in val_images:
         src = os.path.join(obb_images_dir, img)
@@ -77,9 +87,9 @@ def main():
         src_lbl = os.path.join(obb_labels_dir, lbl)
         dst_lbl = os.path.join(val_lbl_dir, lbl)
         if os.path.exists(src):
-            shutil.copy2(src, dst)
+            create_link(src, dst)
         if os.path.exists(src_lbl):
-            shutil.copy2(src_lbl, dst_lbl)
+            create_link(src_lbl, dst_lbl)
 
     # Create dataset.yaml
     dataset_yaml = os.path.join(obb_data_folder, 'dataset.yaml')

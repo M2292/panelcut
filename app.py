@@ -135,6 +135,33 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 os.makedirs(os.path.join(TRAINING_DATA_FOLDER, 'obb', 'images'), exist_ok=True)
 os.makedirs(os.path.join(TRAINING_DATA_FOLDER, 'obb', 'labels'), exist_ok=True)
 
+# Model detector cache to avoid reloading models on each request
+_detector_cache = {}
+
+def get_cached_detector(yolo_model_path, seg_model_path, confidence):
+    """
+    Get or create a cached HybridDetector instance.
+    This prevents reloading models from disk on every request.
+    """
+    cache_key = f"{yolo_model_path}|{seg_model_path}|{confidence}"
+
+    if cache_key not in _detector_cache:
+        try:
+            from yolo_detector import HybridDetector
+            print(f"[Cache] Creating new HybridDetector for {cache_key}")
+            _detector_cache[cache_key] = HybridDetector(
+                yolo_model_path=yolo_model_path,
+                seg_model_path=seg_model_path,
+                confidence=confidence
+            )
+        except Exception as e:
+            print(f"[Cache] Failed to create detector: {e}")
+            raise
+    else:
+        print(f"[Cache] Reusing cached HybridDetector for {cache_key}")
+
+    return _detector_cache[cache_key]
+
 
 def load_stats():
     """Load download statistics from Firestore or local file."""
@@ -400,6 +427,7 @@ def slice_with_mask():
     try:
         min_area = request.args.get('min_area', 10000, type=int)
         rtl = request.args.get('rtl', 'true').lower() == 'true'
+        add_border = request.args.get('add_border', 'false').lower() == 'true'
 
         if 'image' not in request.files or 'mask' not in request.files:
             return jsonify({'error': 'Both image and mask files required'}), 400
@@ -438,6 +466,24 @@ def slice_with_mask():
             if area > min_area:
                 x, y, w, h = cv2.boundingRect(contour)
                 panel_image = extract_panel_with_mask(image, contour)
+
+                # Add border if requested
+                if add_border:
+                    border_size = 3
+                    # Add border following the contour shape
+                    if len(panel_image.shape) == 3 and panel_image.shape[2] == 4:
+                        # BGRA image - add border following the contour
+                        alpha = panel_image[:, :, 3]
+                        kernel = np.ones((border_size*2+1, border_size*2+1), np.uint8)
+                        dilated_alpha = cv2.dilate(alpha, kernel, iterations=1)
+                        border_mask = (dilated_alpha > 0) & (alpha == 0)
+                        panel_image[border_mask] = [0, 0, 0, 255]
+                    else:
+                        # BGR image - find contour and draw border
+                        gray = cv2.cvtColor(panel_image, cv2.COLOR_BGR2GRAY) if len(panel_image.shape) == 3 else panel_image
+                        _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+                        contours_img, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        cv2.drawContours(panel_image, contours_img, -1, (0, 0, 0), border_size*2)
 
                 panel = Panel(
                     image=panel_image,
@@ -612,6 +658,7 @@ def download_panels():
         - panels: Array containing base64 images
         - original_image (optional): Base64 of original manga page for training
         - boxes (optional): Bounding boxes for training data collection
+        - add_border (optional): Add black border around panels
     """
     try:
         data = request.get_json()
@@ -619,6 +666,7 @@ def download_panels():
             return jsonify({'error': 'No panels provided'}), 400
 
         panels = data['panels']
+        add_border = data.get('add_border', False)
 
         # Silently save training data if original image and boxes are provided
         original_image = data.get('original_image')
@@ -642,6 +690,34 @@ def download_panels():
                 if ',' in img_base64:
                     img_base64 = img_base64.split(',')[1]
                 img_bytes = base64.b64decode(img_base64)
+
+                # Apply border if requested
+                if add_border:
+                    nparr = np.frombuffer(img_bytes, np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)  # Preserve alpha channel
+                    if img is not None:
+                        border_size = 3
+                        # Handle both BGRA and BGR images
+                        if len(img.shape) == 3 and img.shape[2] == 4:
+                            # BGRA image - add border following the contour shape
+                            # Extract alpha channel to find the panel edge
+                            alpha = img[:, :, 3]
+                            # Dilate the alpha to create border area
+                            kernel = np.ones((border_size*2+1, border_size*2+1), np.uint8)
+                            dilated_alpha = cv2.dilate(alpha, kernel, iterations=1)
+                            # Border is where dilated but not original
+                            border_mask = (dilated_alpha > 0) & (alpha == 0)
+                            # Set border pixels to black with full opacity
+                            img[border_mask] = [0, 0, 0, 255]
+                        else:
+                            # BGR image - find contour and draw border
+                            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+                            _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+                            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            # Draw black border along contours
+                            cv2.drawContours(img, contours, -1, (0, 0, 0), border_size*2)
+                        _, buffer = cv2.imencode('.png', img)
+                        img_bytes = buffer.tobytes()
 
                 # Add to ZIP
                 filename = f"panel_{idx + 1:03d}.png"
@@ -794,6 +870,7 @@ def download_bulk_panels():
 
     Expects JSON:
         - pages: Array of page arrays, each containing panel objects
+        - add_border (optional): Add black border around panels
 
     Naming: page_001_panel_001.png, page_001_panel_002.png, etc.
     """
@@ -803,6 +880,7 @@ def download_bulk_panels():
             return jsonify({'error': 'No pages provided'}), 400
 
         pages = data['pages']
+        add_border = data.get('add_border', False)
 
         # Count total panels for stats
         total_panels_count = sum(len(panels) for panels in pages if panels)
@@ -819,6 +897,34 @@ def download_bulk_panels():
                     if ',' in img_base64:
                         img_base64 = img_base64.split(',')[1]
                     img_bytes = base64.b64decode(img_base64)
+
+                    # Apply border if requested
+                    if add_border:
+                        nparr = np.frombuffer(img_bytes, np.uint8)
+                        img = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)  # Preserve alpha channel
+                        if img is not None:
+                            border_size = 3
+                            # Handle both BGRA and BGR images
+                            if len(img.shape) == 3 and img.shape[2] == 4:
+                                # BGRA image - add border following the contour shape
+                                # Extract alpha channel to find the panel edge
+                                alpha = img[:, :, 3]
+                                # Dilate the alpha to create border area
+                                kernel = np.ones((border_size*2+1, border_size*2+1), np.uint8)
+                                dilated_alpha = cv2.dilate(alpha, kernel, iterations=1)
+                                # Border is where dilated but not original
+                                border_mask = (dilated_alpha > 0) & (alpha == 0)
+                                # Set border pixels to black with full opacity
+                                img[border_mask] = [0, 0, 0, 255]
+                            else:
+                                # BGR image - find contour and draw border
+                                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+                                _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+                                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                # Draw black border along contours
+                                cv2.drawContours(img, contours, -1, (0, 0, 0), border_size*2)
+                            _, buffer = cv2.imencode('.png', img)
+                            img_bytes = buffer.tobytes()
 
                     # page_001_panel_001.png format
                     filename = f"page_{page_idx + 1:03d}_panel_{panel_idx + 1:03d}.png"
@@ -1351,17 +1457,13 @@ def slice_hybrid_models():
         if image is None:
             return jsonify({'error': 'Could not decode image'}), 400
 
-        # Import and use hybrid detector
+        # Get cached hybrid detector (avoids reloading models on each request)
         try:
-            from yolo_detector import HybridDetector
+            detector = get_cached_detector(yolo_model, seg_model, confidence)
         except ImportError:
             return jsonify({'error': 'Hybrid detector not available'}), 500
-
-        detector = HybridDetector(
-            yolo_model_path=yolo_model,
-            seg_model_path=seg_model,
-            confidence=confidence
-        )
+        except Exception as e:
+            return jsonify({'error': f'Failed to load detector: {str(e)}'}), 500
         hybrid_panels = detector.detect_panels_only(image)
 
         if not hybrid_panels:

@@ -199,6 +199,33 @@
             cursor: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="%23ff6b6b" fill-opacity="0.3" stroke="%23ff0000" stroke-width="2"/><line x1="7" y1="7" x2="17" y2="17" stroke="%23ff0000" stroke-width="2"/><line x1="17" y1="7" x2="7" y2="17" stroke="%23ff0000" stroke-width="2"/></svg>') 12 12, auto;
         }
 
+        /* Magnifier */
+        .magnifier {
+            position: fixed;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 150px;
+            height: 150px;
+            border: 3px solid var(--accent);
+            border-radius: 50%;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 1000;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(255, 107, 107, 0.3);
+            background: #000;
+        }
+
+        .magnifier.hidden {
+            display: none;
+        }
+
+        #magnifierCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
         /* Zoom indicator */
         .zoom-indicator {
             position: fixed;
@@ -944,6 +971,11 @@
         </div>
     </div>
 
+    <!-- Magnifier for anchor dragging -->
+    <div class="magnifier hidden" id="magnifier">
+        <canvas id="magnifierCanvas"></canvas>
+    </div>
+
     <!-- Bottom Toolbar -->
     <div class="bottom-toolbar">
         <!-- Primary Actions -->
@@ -1066,6 +1098,13 @@
         const ctx = canvas.getContext('2d');
         const canvasArea = document.getElementById('canvasArea');
         const zoomIndicator = document.getElementById('zoomIndicator');
+
+        // Magnifier elements
+        const magnifier = document.getElementById('magnifier');
+        const magnifierCanvas = document.getElementById('magnifierCanvas');
+        const magnifierCtx = magnifierCanvas.getContext('2d');
+        const MAGNIFIER_SIZE = 150;
+        const MAGNIFIER_ZOOM = 3; // Magnification level
 
         // Sidebar
         const sidebarContent = document.getElementById('sidebarContent');
@@ -1436,6 +1475,115 @@
                 ctx.fillStyle = '#FFFFFF';
                 ctx.fillText(label, centerX * totalScale, centerY * totalScale);
             }
+        }
+
+        // =====================================================================
+        // MAGNIFIER
+        // =====================================================================
+        function showMagnifier(screenX, screenY, imageX, imageY, rect = null, cornerIdx = null) {
+            if (!currentImage) return;
+
+            // Magnifier position is fixed in CSS, just show it
+            magnifier.classList.remove('hidden');
+
+            // Set magnifier canvas size
+            magnifierCanvas.width = MAGNIFIER_SIZE;
+            magnifierCanvas.height = MAGNIFIER_SIZE;
+
+            // Calculate the area to magnify from the original image
+            const magnifyRadius = MAGNIFIER_SIZE / (2 * MAGNIFIER_ZOOM);
+            const srcX = Math.max(0, imageX - magnifyRadius);
+            const srcY = Math.max(0, imageY - magnifyRadius);
+            const srcWidth = Math.min(magnifyRadius * 2, currentImage.width - srcX);
+            const srcHeight = Math.min(magnifyRadius * 2, currentImage.height - srcY);
+
+            // Clear the magnifier canvas
+            magnifierCtx.fillStyle = '#000';
+            magnifierCtx.fillRect(0, 0, MAGNIFIER_SIZE, MAGNIFIER_SIZE);
+
+            // Draw the magnified portion
+            const destX = (magnifyRadius - (imageX - srcX)) * MAGNIFIER_ZOOM;
+            const destY = (magnifyRadius - (imageY - srcY)) * MAGNIFIER_ZOOM;
+            magnifierCtx.drawImage(
+                currentImage,
+                srcX, srcY, srcWidth, srcHeight,
+                destX, destY, srcWidth * MAGNIFIER_ZOOM, srcHeight * MAGNIFIER_ZOOM
+            );
+
+            const centerX = MAGNIFIER_SIZE / 2;
+            const centerY = MAGNIFIER_SIZE / 2;
+
+            // Draw bbox edge guide lines
+            if (rect && cornerIdx !== null) {
+                magnifierCtx.strokeStyle = '#4CAF50';
+                magnifierCtx.lineWidth = 2;
+                magnifierCtx.setLineDash([5, 5]);
+
+                const corners = rect.corners;
+                const numCorners = corners.length;
+
+                // Get the two adjacent corners (edges connected to the dragged corner)
+                const prevCorner = corners[(cornerIdx - 1 + numCorners) % numCorners];
+                const nextCorner = corners[(cornerIdx + 1) % numCorners];
+
+                // Convert corner positions to magnifier coordinates
+                const toMagnifierCoords = (imgX, imgY) => {
+                    const relX = (imgX - imageX) * MAGNIFIER_ZOOM;
+                    const relY = (imgY - imageY) * MAGNIFIER_ZOOM;
+                    return {
+                        x: centerX + relX,
+                        y: centerY + relY
+                    };
+                };
+
+                const prevPos = toMagnifierCoords(prevCorner.x, prevCorner.y);
+                const nextPos = toMagnifierCoords(nextCorner.x, nextCorner.y);
+
+                // Draw lines extending from center to edges of magnifier
+                const extendLine = (fromX, fromY, toX, toY) => {
+                    const dx = toX - fromX;
+                    const dy = toY - fromY;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    if (len === 0) return;
+
+                    const extendFactor = MAGNIFIER_SIZE;
+                    const endX = fromX + (dx / len) * extendFactor;
+                    const endY = fromY + (dy / len) * extendFactor;
+
+                    magnifierCtx.beginPath();
+                    magnifierCtx.moveTo(fromX, fromY);
+                    magnifierCtx.lineTo(endX, endY);
+                    magnifierCtx.stroke();
+                };
+
+                // Draw extended lines to previous and next corners
+                extendLine(centerX, centerY, prevPos.x, prevPos.y);
+                extendLine(centerX, centerY, nextPos.x, nextPos.y);
+
+                magnifierCtx.setLineDash([]);
+            }
+
+            // Draw crosshair at center
+            magnifierCtx.strokeStyle = '#ff6b6b';
+            magnifierCtx.lineWidth = 2;
+            const crosshairSize = 10;
+
+            magnifierCtx.beginPath();
+            magnifierCtx.moveTo(centerX - crosshairSize, centerY);
+            magnifierCtx.lineTo(centerX + crosshairSize, centerY);
+            magnifierCtx.moveTo(centerX, centerY - crosshairSize);
+            magnifierCtx.lineTo(centerX, centerY + crosshairSize);
+            magnifierCtx.stroke();
+
+            // Draw center dot
+            magnifierCtx.fillStyle = '#ff6b6b';
+            magnifierCtx.beginPath();
+            magnifierCtx.arc(centerX, centerY, 2, 0, Math.PI * 2);
+            magnifierCtx.fill();
+        }
+
+        function hideMagnifier() {
+            magnifier.classList.add('hidden');
         }
 
         // =====================================================================
@@ -2229,7 +2377,7 @@
             mousePos = getMousePos(e);
 
             if (currentTool === 'rect' && !spaceKeyDown) {
-                handleRectMouseMove(mousePos, e.ctrlKey);
+                handleRectMouseMove(mousePos, e.ctrlKey, e.clientX, e.clientY);
                 updateRectCursor(mousePos);
             }
         });
@@ -2299,7 +2447,7 @@
             canvas.style.cursor = 'crosshair';
         }
 
-        function handleRectMouseMove(pos, ctrlKey = false) {
+        function handleRectMouseMove(pos, ctrlKey = false, screenX = 0, screenY = 0) {
             if (!isDrawing) return;
 
             // Dragging a corner - clamp to image bounds independently for each axis
@@ -2324,6 +2472,16 @@
                 const clampedX = Math.max(0, Math.min(currentImage.width, targetX));
                 const clampedY = Math.max(0, Math.min(currentImage.height, targetY));
                 selectedRect.corners[draggedCorner] = { x: clampedX, y: clampedY };
+
+                // Calculate screen position of the anchor
+                const canvasRect = canvas.getBoundingClientRect();
+                const totalScale = scale * zoomLevel;
+                const anchorScreenX = canvasRect.left + (clampedX * totalScale);
+                const anchorScreenY = canvasRect.top + (clampedY * totalScale);
+
+                // Show magnifier at the dragged corner position with bbox guide lines
+                showMagnifier(anchorScreenX, anchorScreenY, clampedX, clampedY, selectedRect, draggedCorner);
+
                 redraw();
                 return;
             }
@@ -2407,9 +2565,14 @@
             cornerDragStartPos = null;
             isDraggingRect = false;
             dragStartPos = null;
+            hideMagnifier();  // Hide magnifier when dragging ends
             if (currentTool === 'rect' && mousePos) {
                 updateRectCursor(mousePos);
             }
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            hideMagnifier();  // Hide magnifier when mouse leaves canvas
         });
 
         function handleRectMouseUp() {
