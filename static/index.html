@@ -348,6 +348,12 @@
             display: block;
         }
 
+        /* Border preview when Add Border toggle is on */
+        .panels-list.show-border .panel-thumb img {
+            outline: 3px solid #000;
+            outline-offset: -3px;
+        }
+
         .panel-thumb-number {
             position: absolute;
             top: 6px;
@@ -1144,7 +1150,7 @@
                 const response = await fetch('/api/stats');
                 if (response.ok) {
                     const stats = await response.json();
-                    document.getElementById('totalDownloads').textContent = stats.total_downloads.toLocaleString();
+                    document.getElementById('totalDownloads').textContent = (stats.total_pages || stats.total_downloads || 0).toLocaleString();
                     document.getElementById('totalPanels').textContent = stats.total_panels.toLocaleString();
                 }
             } catch (e) {
@@ -3779,6 +3785,16 @@
                 cb.closest('.panel-thumb').classList.add('unselected');
             });
             updateSelectionCount();
+        });
+
+        // Add Border toggle - show preview border on panel thumbnails
+        const addBorderToggle = document.getElementById('addBorderToggle');
+        addBorderToggle.addEventListener('change', () => {
+            if (addBorderToggle.checked) {
+                panelsList.classList.add('show-border');
+            } else {
+                panelsList.classList.remove('show-border');
+            }
         });
 
         // View toggle buttons

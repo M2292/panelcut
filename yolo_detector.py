@@ -1019,13 +1019,63 @@ class HybridDetector:
         else:
             print(f"[Hybrid] Seg model not found: {self.seg_model_path}")
 
+    def _get_corner_angle(self, corners: np.ndarray, corner_idx: int) -> float:
+        """
+        Calculate the angle at a specific corner.
+
+        Args:
+            corners: 4 corner points as numpy array
+            corner_idx: Index of the corner to calculate angle for (0-3)
+
+        Returns:
+            Angle in degrees at that corner
+        """
+        p1 = corners[(corner_idx - 1) % 4]
+        p2 = corners[corner_idx]
+        p3 = corners[(corner_idx + 1) % 4]
+
+        v1 = p1 - p2
+        v2 = p3 - p2
+
+        mag1 = np.linalg.norm(v1)
+        mag2 = np.linalg.norm(v2)
+
+        if mag1 == 0 or mag2 == 0:
+            return 90.0  # Fallback to 90 if degenerate
+
+        dot = np.dot(v1, v2)
+        cos_angle = dot / (mag1 * mag2)
+        cos_angle = np.clip(cos_angle, -1, 1)
+        angle = np.degrees(np.arccos(cos_angle))
+
+        return angle
+
+    def _is_corner_90_degrees(self, corners: np.ndarray, corner_idx: int, tolerance: float = 15.0) -> bool:
+        """
+        Check if a specific corner is approximately 90 degrees.
+
+        Args:
+            corners: 4 corner points as numpy array
+            corner_idx: Index of the corner to check (0-3)
+            tolerance: Degrees of tolerance from 90 (default 15)
+
+        Returns:
+            True if the corner angle is within tolerance of 90 degrees
+        """
+        angle = self._get_corner_angle(corners, corner_idx)
+        return abs(angle - 90) < tolerance
+
     def _compare_corners(self, seg_corners: np.ndarray, yolo_corners: np.ndarray, image_shape: Tuple[int, int]) -> Tuple[np.ndarray, str, int]:
         """
-        Compare corners from YOLO and Seg models and choose the best source.
+        Compare corners from YOLO and Seg models and create a true hybrid.
 
-        Strategy: If ANY corner differs significantly between Seg and YOLO,
-        use the ENTIRE Seg bbox (don't mix corners). This ensures consistent
-        panel shapes rather than weird hybrids.
+        Strategy: For each corner, check if the seg model's corner is 90 degrees.
+        - If the corner IS 90 degrees: use YOLO's position (more precise for rectangles)
+        - If the corner is NOT 90 degrees: use Seg's position (captures the actual shape)
+
+        This creates a true hybrid where rectangular corners come from YOLO's
+        axis-aligned detection, while non-rectangular corners come from Seg's
+        more flexible polygon detection.
 
         Args:
             seg_corners: 4 corner points from segmentation model
@@ -1033,10 +1083,10 @@ class HybridDetector:
             image_shape: (height, width) for normalization
 
         Returns:
-            Tuple of (chosen_corners, source, num_differing_corners)
-            - chosen_corners: Either all from YOLO or all from Seg
-            - source: 'yolo' if corners match, 'seg' if any corner differs
-            - num_differing_corners: How many corners differed (0 = use YOLO, 1+ = use Seg)
+            Tuple of (chosen_corners, source, num_non_90_corners)
+            - chosen_corners: Mixed corners from both models
+            - source: 'yolo' if all 90°, 'seg' if all non-90°, 'hybrid' if mixed
+            - num_non_90_corners: How many corners were non-90° (used Seg)
         """
         if len(seg_corners) != 4 or len(yolo_corners) != 4:
             # Fallback to seg if corner counts don't match
@@ -1045,8 +1095,7 @@ class HybridDetector:
         h, w = image_shape
         diagonal = np.sqrt(h**2 + w**2)
 
-        # Threshold for considering corners "matching"
-        # ~1% of diagonal - tighter threshold for more accurate detection
+        # Threshold for considering corners "matching" position-wise
         match_threshold = 0.01 * diagonal
 
         # Calculate distance matrix to find best corner correspondence
@@ -1072,29 +1121,47 @@ class HybridDetector:
             if len(seg_to_yolo) == 4:
                 break
 
-        # Count how many corners differ significantly
-        differing_corners = 0
-        corner_diffs = []
+        # Build the hybrid corners based on angle analysis
+        # For each corner: ONLY if it's exactly 90° in seg, use YOLO; otherwise use Seg
+        chosen_corners = np.zeros((4, 2), dtype=np.float32)
+        corner_sources = []  # Track which source was used for each corner
+        non_90_count = 0
+
+        # Extremely tight tolerance - YOLO is always exactly 90°, so only use it
+        # when Seg also detected exactly 90° (tiny margin only for float rounding)
+        angle_tolerance = 0.5  # Only 89.5-90.5° counts as "exactly 90 degrees"
+
+        print(f"[Hybrid]   Analyzing corners (90° tolerance: ±{angle_tolerance}°):")
 
         for seg_idx in range(4):
             yolo_idx = seg_to_yolo[seg_idx]
-            dist = distances[seg_idx, yolo_idx]
-            corner_diffs.append(dist)
-            if dist >= match_threshold:
-                differing_corners += 1
+            seg_angle = self._get_corner_angle(seg_corners, seg_idx)
+            is_exactly_90 = abs(seg_angle - 90) <= angle_tolerance
 
-        # Decision: if ANY corner differs, use entire Seg bbox
-        if differing_corners > 0:
-            source = 'seg'
-            chosen_corners = seg_corners.copy()
-            print(f"[Hybrid]   Using SEG bbox: {differing_corners}/4 corners differ (threshold={match_threshold:.0f}px)")
-            print(f"[Hybrid]   Corner distances: {[f'{d:.0f}px' for d in corner_diffs]}")
-        else:
+            if is_exactly_90:
+                # Corner is exactly 90 degrees - use YOLO's precise axis-aligned position
+                chosen_corners[seg_idx] = yolo_corners[yolo_idx]
+                corner_sources.append('yolo')
+                print(f"[Hybrid]     Corner {seg_idx}: {seg_angle:.1f}° (=90°) → using YOLO")
+            else:
+                # Corner is NOT exactly 90 degrees - use Seg's position
+                chosen_corners[seg_idx] = seg_corners[seg_idx]
+                corner_sources.append('seg')
+                non_90_count += 1
+                print(f"[Hybrid]     Corner {seg_idx}: {seg_angle:.1f}° (≠90°) → using SEG")
+
+        # Determine overall source label
+        if non_90_count == 0:
             source = 'yolo'
-            chosen_corners = yolo_corners.copy()
-            print(f"[Hybrid]   Using YOLO bbox: all corners match (threshold={match_threshold:.0f}px)")
+            print(f"[Hybrid]   Result: All 4 corners are 90° → using full YOLO bbox")
+        elif non_90_count == 4:
+            source = 'seg'
+            print(f"[Hybrid]   Result: All 4 corners are non-90° → using full SEG bbox")
+        else:
+            source = 'hybrid'
+            print(f"[Hybrid]   Result: HYBRID bbox ({4-non_90_count} YOLO corners, {non_90_count} SEG corners)")
 
-        return chosen_corners, source, differing_corners
+        return chosen_corners, source, non_90_count
 
     def _is_rectangular(self, corners: np.ndarray, image_shape: Tuple[int, int]) -> bool:
         """
@@ -1331,10 +1398,10 @@ class HybridDetector:
                 existing_panel = hybrid_panels[best_match_idx]
                 yolo_corners = existing_panel.corners
 
-                # Compare corners: if any differ, use entire Seg bbox
-                chosen_corners, source, diff_count = self._compare_corners(seg_corners, yolo_corners, (h, w))
+                # Compare corners: use YOLO for 90° corners, Seg for non-90° corners
+                chosen_corners, source, non_90_count = self._compare_corners(seg_corners, yolo_corners, (h, w))
 
-                # Determine if result is rectangular (YOLO = rectangular, Seg = check)
+                # Determine if result is rectangular (YOLO = rectangular, hybrid/seg = check)
                 is_rect = (source == 'yolo') or self._is_rectangular(chosen_corners, (h, w))
 
                 hybrid_panels[best_match_idx] = HybridPanel(
@@ -1345,7 +1412,7 @@ class HybridDetector:
                     source=source,
                     is_rectangular=is_rect
                 )
-                print(f"[Hybrid] Chose {source.upper()} bbox (IoU={best_iou:.2f}, {diff_count} corners differed)")
+                print(f"[Hybrid] Created {source.upper()} bbox (IoU={best_iou:.2f}, {non_90_count} non-90° corners from Seg)")
             else:
                 # No overlap - seg found a panel YOLO missed, add it
                 is_rect = self._is_rectangular(seg_corners, (h, w))

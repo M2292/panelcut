@@ -181,7 +181,7 @@ def load_stats():
                 return json.load(f)
         except:
             pass
-    return {'total_downloads': 0, 'total_panels': 0}
+    return {'total_downloads': 0, 'total_panels': 0, 'total_pages': 0}
 
 
 def save_stats(stats):
@@ -470,20 +470,35 @@ def slice_with_mask():
                 # Add border if requested
                 if add_border:
                     border_size = 3
-                    # Add border following the contour shape
+                    # Add border INSIDE the panel edge with anti-aliasing for smooth diagonals
                     if len(panel_image.shape) == 3 and panel_image.shape[2] == 4:
-                        # BGRA image - add border following the contour
+                        # BGRA image - add border inside the panel edge
                         alpha = panel_image[:, :, 3]
-                        kernel = np.ones((border_size*2+1, border_size*2+1), np.uint8)
-                        dilated_alpha = cv2.dilate(alpha, kernel, iterations=1)
-                        border_mask = (dilated_alpha > 0) & (alpha == 0)
-                        panel_image[border_mask] = [0, 0, 0, 255]
+                        # Find contours of the opaque area
+                        contours_img, _ = cv2.findContours(alpha, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        for c in contours_img:
+                            # Simplify contour to key points (corners) for smooth diagonal lines
+                            epsilon = 0.01 * cv2.arcLength(c, True)
+                            approx = cv2.approxPolyDP(c, epsilon, True)
+                            pts = approx.reshape(-1, 2)
+                            for i in range(len(pts)):
+                                pt1 = tuple(pts[i].astype(int))
+                                pt2 = tuple(pts[(i + 1) % len(pts)].astype(int))
+                                cv2.line(panel_image, pt1, pt2, (0, 0, 0, 255), border_size, cv2.LINE_AA)
                     else:
                         # BGR image - find contour and draw border
                         gray = cv2.cvtColor(panel_image, cv2.COLOR_BGR2GRAY) if len(panel_image.shape) == 3 else panel_image
                         _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
                         contours_img, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        cv2.drawContours(panel_image, contours_img, -1, (0, 0, 0), border_size*2)
+                        for c in contours_img:
+                            # Simplify contour to key points (corners)
+                            epsilon = 0.01 * cv2.arcLength(c, True)
+                            approx = cv2.approxPolyDP(c, epsilon, True)
+                            pts = approx.reshape(-1, 2)
+                            for i in range(len(pts)):
+                                pt1 = tuple(pts[i].astype(int))
+                                pt2 = tuple(pts[(i + 1) % len(pts)].astype(int))
+                                cv2.line(panel_image, pt1, pt2, (0, 0, 0), border_size, cv2.LINE_AA)
 
                 panel = Panel(
                     image=panel_image,
@@ -699,23 +714,34 @@ def download_panels():
                         border_size = 3
                         # Handle both BGRA and BGR images
                         if len(img.shape) == 3 and img.shape[2] == 4:
-                            # BGRA image - add border following the contour shape
-                            # Extract alpha channel to find the panel edge
+                            # BGRA image - add border INSIDE the panel edge
                             alpha = img[:, :, 3]
-                            # Dilate the alpha to create border area
-                            kernel = np.ones((border_size*2+1, border_size*2+1), np.uint8)
-                            dilated_alpha = cv2.dilate(alpha, kernel, iterations=1)
-                            # Border is where dilated but not original
-                            border_mask = (dilated_alpha > 0) & (alpha == 0)
-                            # Set border pixels to black with full opacity
-                            img[border_mask] = [0, 0, 0, 255]
+                            # Find contours of the opaque area
+                            contours, _ = cv2.findContours(alpha, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            for c in contours:
+                                # Simplify contour to key points (corners) for smooth diagonal lines
+                                epsilon = 0.01 * cv2.arcLength(c, True)
+                                approx = cv2.approxPolyDP(c, epsilon, True)
+                                pts = approx.reshape(-1, 2)
+                                # Draw anti-aliased lines between corner points
+                                for i in range(len(pts)):
+                                    pt1 = tuple(pts[i].astype(int))
+                                    pt2 = tuple(pts[(i + 1) % len(pts)].astype(int))
+                                    cv2.line(img, pt1, pt2, (0, 0, 0, 255), border_size, cv2.LINE_AA)
                         else:
                             # BGR image - find contour and draw border
                             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
                             _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
                             contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                            # Draw black border along contours
-                            cv2.drawContours(img, contours, -1, (0, 0, 0), border_size*2)
+                            for c in contours:
+                                # Simplify contour to key points (corners)
+                                epsilon = 0.01 * cv2.arcLength(c, True)
+                                approx = cv2.approxPolyDP(c, epsilon, True)
+                                pts = approx.reshape(-1, 2)
+                                for i in range(len(pts)):
+                                    pt1 = tuple(pts[i].astype(int))
+                                    pt2 = tuple(pts[(i + 1) % len(pts)].astype(int))
+                                    cv2.line(img, pt1, pt2, (0, 0, 0), border_size, cv2.LINE_AA)
                         _, buffer = cv2.imencode('.png', img)
                         img_bytes = buffer.tobytes()
 
@@ -725,10 +751,11 @@ def download_panels():
 
         zip_buffer.seek(0)
 
-        # Update download stats
+        # Update download stats (single page download = 1 page)
         stats = load_stats()
         stats['total_downloads'] = stats.get('total_downloads', 0) + 1
         stats['total_panels'] = stats.get('total_panels', 0) + len(panels)
+        stats['total_pages'] = stats.get('total_pages', 0) + 1
         save_stats(stats)
 
         return send_file(
@@ -906,23 +933,33 @@ def download_bulk_panels():
                             border_size = 3
                             # Handle both BGRA and BGR images
                             if len(img.shape) == 3 and img.shape[2] == 4:
-                                # BGRA image - add border following the contour shape
-                                # Extract alpha channel to find the panel edge
+                                # BGRA image - add border INSIDE the panel edge
                                 alpha = img[:, :, 3]
-                                # Dilate the alpha to create border area
-                                kernel = np.ones((border_size*2+1, border_size*2+1), np.uint8)
-                                dilated_alpha = cv2.dilate(alpha, kernel, iterations=1)
-                                # Border is where dilated but not original
-                                border_mask = (dilated_alpha > 0) & (alpha == 0)
-                                # Set border pixels to black with full opacity
-                                img[border_mask] = [0, 0, 0, 255]
+                                # Find contours of the opaque area
+                                contours, _ = cv2.findContours(alpha, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                for c in contours:
+                                    # Simplify contour to key points (corners) for smooth diagonal lines
+                                    epsilon = 0.01 * cv2.arcLength(c, True)
+                                    approx = cv2.approxPolyDP(c, epsilon, True)
+                                    pts = approx.reshape(-1, 2)
+                                    for i in range(len(pts)):
+                                        pt1 = tuple(pts[i].astype(int))
+                                        pt2 = tuple(pts[(i + 1) % len(pts)].astype(int))
+                                        cv2.line(img, pt1, pt2, (0, 0, 0, 255), border_size, cv2.LINE_AA)
                             else:
                                 # BGR image - find contour and draw border
                                 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
                                 _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
                                 contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                                # Draw black border along contours
-                                cv2.drawContours(img, contours, -1, (0, 0, 0), border_size*2)
+                                for c in contours:
+                                    # Simplify contour to key points (corners)
+                                    epsilon = 0.01 * cv2.arcLength(c, True)
+                                    approx = cv2.approxPolyDP(c, epsilon, True)
+                                    pts = approx.reshape(-1, 2)
+                                    for i in range(len(pts)):
+                                        pt1 = tuple(pts[i].astype(int))
+                                        pt2 = tuple(pts[(i + 1) % len(pts)].astype(int))
+                                        cv2.line(img, pt1, pt2, (0, 0, 0), border_size, cv2.LINE_AA)
                             _, buffer = cv2.imencode('.png', img)
                             img_bytes = buffer.tobytes()
 
@@ -932,10 +969,11 @@ def download_bulk_panels():
 
         zip_buffer.seek(0)
 
-        # Update download stats
+        # Update download stats (bulk download = count pages)
         stats = load_stats()
         stats['total_downloads'] = stats.get('total_downloads', 0) + 1
         stats['total_panels'] = stats.get('total_panels', 0) + total_panels_count
+        stats['total_pages'] = stats.get('total_pages', 0) + len(pages)
         save_stats(stats)
 
         return send_file(
