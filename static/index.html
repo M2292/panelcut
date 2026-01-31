@@ -3900,6 +3900,9 @@
 
                                 if (!saveResponse.ok) {
                                     console.warn(`Training data save failed for page ${i + 1}: ${saveResponse.status}`);
+                                } else {
+                                    const result = await saveResponse.json();
+                                    console.log(`Page ${i + 1} training data saved:`, result.storage, result.sample_id);
                                 }
                             } catch (e) {
                                 console.warn(`Auto-save failed for page ${i + 1}:`, e);
