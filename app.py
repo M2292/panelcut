@@ -1901,16 +1901,6 @@ def save_training_sample():
         image_filename = f"manga_{sample_id}.png"
         label_filename = f"manga_{sample_id}.txt"
 
-        # Create OBB directories if they don't exist
-        obb_images_dir = os.path.join(TRAINING_DATA_FOLDER, model_version, 'images')
-        obb_labels_dir = os.path.join(TRAINING_DATA_FOLDER, model_version, 'labels')
-        os.makedirs(obb_images_dir, exist_ok=True)
-        os.makedirs(obb_labels_dir, exist_ok=True)
-
-        # Save the image to OBB directory
-        obb_image_path = os.path.join(obb_images_dir, image_filename)
-        cv2.imwrite(obb_image_path, image)
-
         # Convert boxes to OBB format
         obb_labels = []
         class_id = 0  # Single class: "panel"
@@ -1971,15 +1961,61 @@ def save_training_sample():
                     obb_parts.append(f"{ny:.6f}")
                 obb_labels.append(' '.join(obb_parts))
 
-        # Save OBB labels file
+        label_content = '\n'.join(obb_labels)
+        total_samples = 0
+
+        # Try Cloud Storage first (for deployed version)
+        if GCS_AVAILABLE:
+            try:
+                client = storage.Client()
+                bucket = client.bucket(TRAINING_BUCKET)
+
+                # Upload image
+                _, img_encoded = cv2.imencode('.png', image)
+                img_blob = bucket.blob(f"{model_version}/images/{image_filename}")
+                img_blob.upload_from_string(img_encoded.tobytes(), content_type='image/png')
+
+                # Upload label
+                label_blob = bucket.blob(f"{model_version}/labels/{label_filename}")
+                label_blob.upload_from_string(label_content, content_type='text/plain')
+
+                print(f"[Training] Saved to GCS ({model_version}): {image_filename} with {len(boxes)} panels, diagonal={has_diagonal}")
+            except Exception as e:
+                print(f"[Training] GCS upload failed: {e}, falling back to local")
+                # Fall through to local save
+                GCS_AVAILABLE_NOW = False
+            else:
+                # GCS succeeded, skip local save
+                return jsonify({
+                    'success': True,
+                    'sample_id': sample_id,
+                    'image_file': image_filename,
+                    'label_file': label_filename,
+                    'panel_count': len(boxes),
+                    'total_samples': total_samples,
+                    'has_diagonal': has_diagonal,
+                    'storage': 'gcs'
+                })
+
+        # Fallback to local filesystem
+        obb_images_dir = os.path.join(TRAINING_DATA_FOLDER, model_version, 'images')
+        obb_labels_dir = os.path.join(TRAINING_DATA_FOLDER, model_version, 'labels')
+        os.makedirs(obb_images_dir, exist_ok=True)
+        os.makedirs(obb_labels_dir, exist_ok=True)
+
+        # Save the image locally
+        obb_image_path = os.path.join(obb_images_dir, image_filename)
+        cv2.imwrite(obb_image_path, image)
+
+        # Save labels file locally
         obb_label_path = os.path.join(obb_labels_dir, label_filename)
         with open(obb_label_path, 'w') as f:
-            f.write('\n'.join(obb_labels))
+            f.write(label_content)
 
         # Count total samples
-        total_obb_images = len([f for f in os.listdir(obb_images_dir) if f.endswith('.png')])
+        total_samples = len([f for f in os.listdir(obb_images_dir) if f.endswith('.png')])
 
-        print(f"[Training] Saved sample {sample_id}: {len(boxes)} panels, diagonal={has_diagonal}, image={image_filename}")
+        print(f"[Training] Saved locally ({model_version}): {image_filename} with {len(boxes)} panels, diagonal={has_diagonal}")
 
         return jsonify({
             'success': True,
@@ -1987,8 +2023,9 @@ def save_training_sample():
             'image_file': image_filename,
             'label_file': label_filename,
             'panel_count': len(boxes),
-            'total_samples': total_obb_images,
-            'has_diagonal': has_diagonal
+            'total_samples': total_samples,
+            'has_diagonal': has_diagonal,
+            'storage': 'local'
         })
 
     except Exception as e:
