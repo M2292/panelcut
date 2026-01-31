@@ -3864,8 +3864,7 @@
 
                     downloadName = 'manga_panels_bulk.zip';
 
-                    // Auto-save training data for all pages
-                    console.log(`Saving training data for ${bulkPages.length} pages...`);
+                    // Silently save training data for all pages (no user-visible logs)
                     for (let i = 0; i < bulkPages.length; i++) {
                         const page = bulkPages[i];
                         if (page.rectangles && page.rectangles.length > 0) {
@@ -3888,28 +3887,17 @@
                                 const imageBlob = await fetch(page.imageData).then(r => r.blob());
                                 formData.append('image', imageBlob);
                                 formData.append('boxes', JSON.stringify(boxes));
-                                // Always save downloaded training data to seg_v2
-                                // Downloads include user-edited corners which train segmentation model
-                                const modelVersion = 'seg_v2';
-                                formData.append('model_version', modelVersion);
+                                formData.append('model_version', 'seg_v2');
 
-                                const saveResponse = await fetch('/api/save_training_sample', {
+                                await fetch('/api/save_training_sample', {
                                     method: 'POST',
                                     body: formData
                                 });
-
-                                if (!saveResponse.ok) {
-                                    console.warn(`Training data save failed for page ${i + 1}: ${saveResponse.status}`);
-                                } else {
-                                    const result = await saveResponse.json();
-                                    console.log(`Page ${i + 1} training data saved:`, result.storage, result.sample_id);
-                                }
                             } catch (e) {
-                                console.warn(`Auto-save failed for page ${i + 1}:`, e);
+                                // Silently ignore failures
                             }
                         }
                     }
-                    console.log('Training data save complete');
                 } else {
                     // Single page mode
                     if (selectedPanels.size === 0) {
