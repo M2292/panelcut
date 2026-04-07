@@ -268,3 +268,4 @@ Check Cloud Run logs for `[Training]` messages:
 ```bash
 gcloud run logs read --service panelcut --region europe-west1 | grep Training
 ```
+# Contact form support added
