@@ -16,6 +16,9 @@ import uuid
 import zipfile
 import json
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 import cv2
@@ -875,6 +878,86 @@ def _save_training_data_silent(original_image_base64: str, boxes: list, model_ve
         f.write(label_content)
 
     print(f"[Training] Saved locally ({model_version}): {image_filename} with {len(boxes)} panels")
+
+
+@app.route('/api/contact', methods=['POST'])
+@limiter.limit("5 per minute")
+def contact():
+    """Handle contact form submissions"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    name = data.get('name', '').strip()[:100]
+    email = data.get('email', '').strip()[:200]
+    category = data.get('category', '').strip()[:50]
+    message = data.get('message', '').strip()[:2000]
+
+    if not name or not email or not message:
+        return jsonify({'error': 'Name, email, and message are required'}), 400
+
+    valid_categories = {'feature', 'bug', 'question', 'other'}
+    if category not in valid_categories:
+        category = 'other'
+
+    import re
+    if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+        return jsonify({'error': 'Invalid email address'}), 400
+
+    # All email config from environment only — never hardcoded
+    recipient = os.environ.get('CONTACT_EMAIL', '')
+    smtp_user = os.environ.get('SMTP_USER', '')
+    smtp_pass = os.environ.get('SMTP_PASS', '')
+
+    if not smtp_user or not smtp_pass or not recipient:
+        # Fallback: save to local file when SMTP is not configured
+        contact_log = os.path.join(os.path.dirname(__file__), 'contact_messages.json')
+        messages = []
+        if os.path.exists(contact_log):
+            try:
+                with open(contact_log, 'r') as f:
+                    messages = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                messages = []
+        messages.append({
+            'name': name,
+            'email': email,
+            'category': category,
+            'message': message,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        with open(contact_log, 'w') as f:
+            json.dump(messages, f, indent=2)
+        return jsonify({'success': True})
+
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+
+        subject = f"[PanelSnip] {category.title()} from {name}"
+        body = (
+            f"Name: {name}\n"
+            f"Email: {email}\n"
+            f"Category: {category}\n"
+            f"Time: {datetime.utcnow().isoformat()}\n\n"
+            f"Message:\n{message}"
+        )
+
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = smtp_user
+        msg['To'] = recipient
+        msg['Reply-To'] = email
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, recipient, msg.as_string())
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"Contact form SMTP error: {e}")
+        return jsonify({'error': 'Could not send message. Please try again later.'}), 500
 
 
 @app.route('/api/health', methods=['GET'])

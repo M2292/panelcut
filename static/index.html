@@ -598,6 +598,176 @@
             to { opacity: 0; }
         }
 
+        /* Contact Button */
+        .contact-btn {
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .contact-btn:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: rgba(255, 107, 107, 0.08);
+        }
+
+        /* Contact Modal */
+        .contact-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            backdrop-filter: blur(4px);
+        }
+
+        .contact-overlay.active {
+            display: flex;
+        }
+
+        .contact-modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 460px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .contact-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 22px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .contact-header h2 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .contact-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.3rem;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+
+        .contact-close:hover {
+            color: var(--accent);
+        }
+
+        .contact-body {
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .contact-body p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .contact-field {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .contact-field label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .contact-field input,
+        .contact-field select,
+        .contact-field textarea {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+
+        .contact-field input:focus,
+        .contact-field select:focus,
+        .contact-field textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .contact-field textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .contact-submit {
+            padding: 12px 20px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent) 0%, #ff8a65 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
+        }
+
+        .contact-submit:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+        }
+
+        .contact-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .contact-success {
+            text-align: center;
+            padding: 30px 22px;
+        }
+
+        .contact-success .checkmark {
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+        }
+
+        .contact-success h3 {
+            font-size: 1rem;
+            margin-bottom: 6px;
+            color: var(--success);
+        }
+
+        .contact-success p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
         /* Responsive */
         @media (max-width: 900px) {
             .panels-sidebar {
@@ -914,8 +1084,44 @@
                 <span>Panels:</span>
                 <span class="stat-value" id="totalPanels">-</span>
             </div>
+            <button class="contact-btn" id="contactBtn">Contact</button>
         </div>
     </header>
+
+    <!-- Contact Modal -->
+    <div class="contact-overlay" id="contactOverlay">
+        <div class="contact-modal">
+            <div class="contact-header">
+                <h2>Get in Touch</h2>
+                <button class="contact-close" id="contactClose">&times;</button>
+            </div>
+            <div class="contact-body" id="contactForm">
+                <p>Have a feature request, found a bug, or just want to say hi? We'd love to hear from you.</p>
+                <div class="contact-field">
+                    <label for="contactName">Name</label>
+                    <input type="text" id="contactName" placeholder="Your name">
+                </div>
+                <div class="contact-field">
+                    <label for="contactEmail">Email</label>
+                    <input type="email" id="contactEmail" placeholder="you@example.com">
+                </div>
+                <div class="contact-field">
+                    <label for="contactCategory">Category</label>
+                    <select id="contactCategory">
+                        <option value="feature">Feature Request</option>
+                        <option value="bug">Bug Report</option>
+                        <option value="question">General Question</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="contact-field">
+                    <label for="contactMessage">Message</label>
+                    <textarea id="contactMessage" placeholder="Tell us what's on your mind..."></textarea>
+                </div>
+                <button class="contact-submit" id="contactSubmit">Send Message</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Main Layout -->
     <div class="main-container">
@@ -4031,6 +4237,98 @@
                 redraw();
             }
         });
+
+        // =====================================================================
+        // CONTACT FORM
+        // =====================================================================
+        (() => {
+            const overlay = document.getElementById('contactOverlay');
+            const closeBtn = document.getElementById('contactClose');
+            const submitBtn = document.getElementById('contactSubmit');
+            const openBtn = document.getElementById('contactBtn');
+            const formBody = document.getElementById('contactForm');
+
+            function openContact() { overlay.classList.add('active'); }
+            function closeContact() {
+                overlay.classList.remove('active');
+                resetForm();
+            }
+
+            function resetForm() {
+                const fields = formBody.querySelectorAll('input, textarea, select');
+                if (fields.length) {
+                    fields.forEach(f => {
+                        if (f.tagName === 'SELECT') f.selectedIndex = 0;
+                        else f.value = '';
+                    });
+                }
+                // Restore form if showing success
+                if (formBody.querySelector('.contact-success')) {
+                    formBody.innerHTML = formBody.dataset.originalHtml;
+                    bindSubmit();
+                }
+            }
+
+            function bindSubmit() {
+                const btn = document.getElementById('contactSubmit');
+                if (btn) btn.addEventListener('click', handleSubmit);
+            }
+
+            async function handleSubmit() {
+                const name = document.getElementById('contactName').value.trim();
+                const email = document.getElementById('contactEmail').value.trim();
+                const category = document.getElementById('contactCategory').value;
+                const message = document.getElementById('contactMessage').value.trim();
+
+                if (!name || !email || !message) {
+                    alert('Please fill in your name, email, and message.');
+                    return;
+                }
+
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(email)) {
+                    alert('Please enter a valid email address.');
+                    return;
+                }
+
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Sending...';
+
+                try {
+                    const resp = await fetch('/api/contact', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, email, category, message })
+                    });
+
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(data.error || 'Failed to send');
+
+                    formBody.innerHTML = `
+                        <div class="contact-success">
+                            <div class="checkmark">&#10003;</div>
+                            <h3>Message Sent!</h3>
+                            <p>Thanks for reaching out. We'll get back to you soon.</p>
+                        </div>`;
+                    setTimeout(closeContact, 2500);
+
+                } catch (err) {
+                    alert('Could not send message: ' + err.message);
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Send Message';
+                }
+            }
+
+            // Store original form HTML for reset
+            formBody.dataset.originalHtml = formBody.innerHTML;
+
+            openBtn.addEventListener('click', openContact);
+            closeBtn.addEventListener('click', closeContact);
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) closeContact();
+            });
+            bindSubmit();
+        })();
     </script>
 </body>
 </html>
